@@ -178,3 +178,4516 @@ export default function Home() {
     </div>
   )
 }
+import * as React from 'react';
+import * as Mathlive from 'mathlive';
+// import {MathfieldElement} from 'mathlive';
+// declare global {
+//   namespace JSX {
+//     interface IntrinsicElements {
+//       'math-field': React.DetailedHTMLProps<React.HTMLAttributes<MathfieldElement>, MathfieldElement>;
+//     }
+//   }
+// }
+
+
+
+type CustomElement<T> = Partial<T & React.DOMAttributes<T>>;
+
+// declare global {
+//     namespace JSX {
+//         interface IntrinsicElements {
+//             // 'math-field': CustomElement<Mathlive.MathfieldElementAttributes>;
+//             'math-field': React.DetailedHTMLProps<React.HTMLAttributes<Mathlive.MathfieldElement>,Mathlive.MathfieldElement>
+    
+//             // 'math-field': React.DetailedHTMLProps<React.HTMLAttributes<Mathlive.MathfieldElement>, Mathlive.MathfieldElement>
+//         }
+//     }
+// }
+
+export interface IMathfieldProps {
+   value: string;
+  options?: Partial<Mathlive.MathfieldOptions>;
+  onChange?: (value: string) => void;
+  style?: React.HTMLAttributes<HTMLDivElement>['style'];
+}
+if(Mathlive.MathfieldElement){
+  Mathlive.MathfieldElement.locale='en';
+  Mathlive.MathfieldElement.decimalSeparator = ',';
+  Mathlive.MathfieldElement.keypressSound = 'none';
+  Mathlive.MathfieldElement.plonkSound = 'none';
+}
+
+export default function Mathfield(props: IMathfieldProps) {
+  const mathfield = React.useRef<Mathlive.MathfieldElement>();
+  const onInput = () => props.onChange?.(mathfield.current?.getValue() || '');
+  
+  const { style } = props;
+  const divStyle = {
+    ...style
+  };
+
+  const init = (mf: Mathlive.MathfieldElement | null) => {
+      if (mf) {
+        // mf.menuItems = mf.menuItems.filter(item =>console.log(item))
+        const rmMenu = ["insert-matrix", "insert"]
+        // mf.menuItems = mf.menuItems.filter(item => rmMenu.some(elm=>elm == item.id) );
+        mathfield.current = mf;
+      }
+  };
+
+  return <math-field ref={init} onInput={onInput} style={divStyle} />;
+}
+
+
+------------------------------
+'use client'
+export const dynamic = 'force-dynamic'
+import React, { ChangeEvent, useEffect, useState, useRef } from 'react'
+import History from '../components/history/history'
+import { marked } from 'marked'
+import katex from 'katex'
+import 'katex/dist/katex.min.css'
+import { config } from '../config'
+import { createSession, getResponseFromModel, saveRating, updateSession } from '@/services/apiCall'
+import styles from '../styles/styles.module.css'
+import { useRouter } from 'next/router'
+import ModalCard from '@/components/modalcard/modalcard'
+import Lottie from 'lottie-web'
+import * as htmlToImage from 'html-to-image'
+import {
+  useEnableSend,
+  useGlobalMode,
+  useSelectedState,
+  useMicIconVisible,
+  useSendButton,
+  useMicPulse,
+  useRatingMessage,
+  useNewChat,
+  useGlobalRating,
+  useSubmittedRating,
+  useActiveChatId,
+  useResponseReceived,
+  useHistoryClickIcon,
+  useSessionId,
+  useStartRecording,
+  useWordCount,
+  useVadListening,
+  useRequestImage,
+  useTimerLimit,
+  usePlaceholderText,
+  useUsedTime,
+  useInputText,
+  useWelcomeTextSubject,
+  useChapterSelection,
+  useIconClicked,
+  useIconHovered,
+  useLikePlaceholderCheckInterface,
+  useChatFeedbackModal,
+  useActiveNavbarIconId,
+  useSlowNetwork,
+  useMathKeyboardTrigger,
+  useSavedRange,
+  useEditEquation,
+  useDrawEquationTrigger,
+} from '@/components/globalState'
+import { useTheme } from 'next-themes'
+import { motion } from 'framer-motion'
+import 'katex/dist/katex.min.css'
+import { exploreWelcomeTextData } from '@/common/customData'
+import { checkImageUrl, clearClipboard, updateCredits } from '@/common/utils'
+import Script from 'next/script'
+import * as Mathlive from 'mathlive'
+// import "//unpkg.com/mathlive";
+import Mathfield from '@/components/Mathfield'
+import "@/public/worklets/editor"
+
+interface chatDetails {
+  id: number
+  question: string
+  answer: string
+  added?: boolean
+  rating: string
+  _id: string
+  imageUrl: string
+  // remainingResponse: string /** FOR DEV PURPOSE */
+  liked: boolean
+  disliked: boolean
+  textAnswer: string
+  questionImage: any
+  modelLink: string
+  description: string
+  embededLink: string
+}
+
+// Extend the Window interface
+declare global {
+  interface Window {
+    wiris: any // or a more specific type if available
+  }
+}
+
+export default function SpeechContent() {
+  const router = useRouter()
+  let utterance: any = ''
+  let previousMode = ''
+  let audioData: any
+  let ratingChatId: any = ''
+  let firstMsg = true
+  let userId = localStorage.getItem('userId')
+  let promptText = ''
+  const modeFromPath: any = router.asPath.includes('mode=') ? router.asPath.split('mode=')[1] : null
+
+  // local declaration
+  let [isRecording, setIsRecording] = useState(false)
+  let [isEquationReady, setIsEquationReady] = useState(false)
+  let [response, setResponse] = useState<any>('')
+  let [answerFromLLM, setAnswerFromLLM] = useState<any>('')
+  let [scrollQuestion, setScrollQuestion] = useState(false)
+  const [editorInitialized, setEditorInitialized] = useState(false)
+  const [id, setId] = useState(-1)
+  const [isInputFocused, setInputFocus] = useState(false)
+  const { inputText, setInputText } = useInputText()
+  const [chatDetails, setChatDetails] = useState<chatDetails[]>([])
+  const [animationContainer, setAnimationContainer] = useState(false)
+  const [animationContainerAnswer, setAnimationContainerAnswer] = useState(false)
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([])
+  const [send, setSend] = useState(false)
+  const [isReading, setIsReading] = useState(false)
+  const [isRatingSelected, setRatingSelected] = useState(false)
+  const [issearchTerm, setSearchTerm] = useState('')
+  const [iconSelectedLike, setIconSelectedLike] = useState(false)
+  const [iconSelectedDislike, setIconSelectedDislike] = useState(false)
+  const [textPlaceHolder, setTextPlaceHolder] = useState('Type here...')
+  const [speechPlaceHolder, setSpeechPlaceHolder] = useState('')
+  const [animate, setAnimate] = useState(false)
+  const [ratingObject, setRatingObject] = useState<any>([])
+  const [currentChatId, setCurrentChatId] = useState<number | null>()
+  const [isdropDownClicked, setDropDownClicked] = useState(false)
+  const [max_duration, setMaxDuration] = useState(5)
+  const [modalImageResponse, setModalImageResponse] = useState('')
+  const [audioId, setAudioId] = useState<number>()
+  const [inputStyle, setInputStyle] = useState<boolean>()
+  const [responseImageModal, setResponseImageModal] = useState(false)
+  const [isOverflowing, setIsOverflowing] = useState(false)
+  const [isAtTop, setIsAtTop] = useState(true)
+  const [exploreWelcomeText, setExploreWelcomeText] = useState(true)
+  const [welcomeText, setWelcomeText] = useState<any>({})
+  const [editor, setEditor] = useState<any>(null)
+  const [drawEditor, setDrawEditor] = useState<any>(null)
+  const [mathMLTags, setMathMLTags] = useState<any[]>([])
+  let { savedRange, setSavedRange } = useSavedRange()
+  const [mathMLToBeEdited, setMathMLToBeEdited] = useState<any>('')
+  const [foundSrc, setFoundSrc] = useState<any>('')
+  let [responseArray, setResponseArray] = useState<any>([])
+  /** Global declarations */
+  const { editEquation, setEditEquation } = useEditEquation()
+  const { slowNetwork, setSlowNetwork } = useSlowNetwork()
+  const { clicked, setClicked } = useHistoryClickIcon()
+  let { ratingMessageId, setRatingMessageId } = useRatingMessage()
+  const { selectedState, setSelectedState } = useSelectedState()
+  const { isIconClicked, setIconClicked } = useIconClicked()
+  const { setIconHovered } = useIconHovered()
+  const { isMicVisible, setMicVisible } = useMicIconVisible()
+  const { globalMode, setGlobalMode } = useGlobalMode()
+  const { setIsEnableSend } = useEnableSend()
+  const { isSendClicked, setIsSendClicked } = useSendButton()
+  const { setSpeechAnimation } = useMicPulse()
+  const { isNewChat, setIsNewChat } = useNewChat()
+  const { isLiked, setIsLiked } = useGlobalRating()
+  const { submittedRating, setSubmittedRating } = useSubmittedRating()
+  const { activeChatId, setActiveChatId } = useActiveChatId()
+  const { isResponseReceived, setResponseReceived } = useResponseReceived()
+  const { sessionId, setSessionId } = useSessionId()
+  const { theme } = useTheme()
+  const { requestImage, setRequestImage } = useRequestImage()
+  const { startRecording, setStartRecording } = useStartRecording()
+  const { wordCount, setWordCount } = useWordCount()
+  const { isVadListening, setVadListening } = useVadListening()
+  const { timerLimit, setTimerLimit } = useTimerLimit()
+  const { getInputMode, setInputMode } = usePlaceholderText()
+  const { usedTime, setUsedTime } = useUsedTime()
+  const { exploreSubject, setExploreSubject } = useWelcomeTextSubject()
+  const { isChapter, setChapter } = useChapterSelection()
+  const { setLikePlaceholderCheck } = useLikePlaceholderCheckInterface()
+  const { openFeedback, setFeedback } = useChatFeedbackModal()
+  const { setIconClick } = useActiveNavbarIconId()
+  const { mathKeyboardModal, setMathKeyboardModal } = useMathKeyboardTrigger()
+  const { drawEquation, setDrawEquation } = useDrawEquationTrigger();
+  /** Element references */
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const historyContainerRef = useRef<HTMLDivElement>(null)
+  const containerRefernce = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const newTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const responseContainerRef = useRef<HTMLDivElement>(null)
+  const imageRef = useRef<HTMLInputElement>(null)
+  const questionRef = useRef<HTMLDivElement>(null)
+  const textToSpeech = useRef((data: any) => null)
+  const containerRef1 = useRef(null)
+  const cancelTls = useRef(() => null)
+  const editorContainerRef = useRef<HTMLDivElement | null>(null)
+  const handContainerRef = useRef<HTMLDivElement | null>(null);
+  const inputTexRef = useRef<HTMLDivElement | null> (null)
+  // Check for Desktop App or Web App
+  if (!process.versions.node) {
+    //isDesktopApp = false // Commented temporarily: next js build renames process variable
+  }
+
+  /** Create a session to initiate explore mode chat */
+  const fetchData = async (userId: any, sessionType: any) => {
+    const isSessionCreated = localStorage.getItem('sessionCreated')
+    if (!isSessionCreated) {
+      try {
+        let subject: any = localStorage.getItem('subject') ? localStorage.getItem('subject')?.toLowerCase() : 'biology'
+        const sessionCreation = await createSession(userId, sessionType, subject)
+        setSessionId(sessionCreation.data._id)
+        localStorage.setItem('sessionCreated', 'true')
+      } catch (error) {
+        setSlowNetwork(true)
+        setIconClick(-1)
+        setSelectedState(-1)
+        setGlobalMode('banner')
+        router.push('/banner')
+        setSpeechAnimation(false)
+        setTimeout(() => {
+          setSlowNetwork(false)
+        }, 5000)
+      }
+    }
+  }
+  const handleSearchTermText = (input: string) => {
+    setSearchTerm(input)
+  }
+
+  /** Scroll up after send clicked to place new question in view port */
+  const scrollQuestionPart = (value: number) => {
+    const section = document.getElementById(`newData-${value}`)
+    if (section && containerRef.current) {
+      const containerHeight = containerRef.current.clientHeight
+      const sectionTop = section.offsetTop
+      const contentHeight = section.scrollHeight
+      const scrollPercentage = 0.1
+      const scrollPosition = sectionTop + contentHeight - containerHeight * scrollPercentage
+      containerRef.current.scrollTo({ top: scrollPosition, behavior: 'smooth' })
+    }
+  }
+
+  function replaceImgTagsWithMathML(input: string, mathMLTags: string[]) {
+    let index = 0
+    const srcOccurrences: Record<string, number[]> = {}
+    input.replace(/<img[^>]*src=["']([^"']+)["'][^>]*>/g, (match, src) => {
+      if (!srcOccurrences[src]) {
+        srcOccurrences[src] = []
+      }
+      srcOccurrences[src].push(index)
+      index++
+      return match
+    })
+    index = 0
+    return input.replace(/<img[^>]*src=["']([^"']+)["'][^>]*>/g, (match, src) => {
+      const mathML = mathMLTags[index]
+      if (!mathML) {
+        const duplicateIndices = srcOccurrences[src]
+        const nonEmptyMathMLIndex = duplicateIndices.find((idx) => mathMLTags[idx] !== '')
+        if (nonEmptyMathMLIndex !== undefined) {
+          return mathMLTags[nonEmptyMathMLIndex]
+        } else {
+          index++
+          return match
+        }
+      } else {
+        index++
+        return mathML
+      }
+    })
+  }
+
+  /** send the input & process llm resposne  */
+  const sendClicked = async () => {
+    clearClipboard()
+    let replacedInput = replaceImgTagsWithMathML(inputText, mathMLTags)
+    setInputText(replacedInput)
+    setInputStyle(true)
+    setExploreWelcomeText(false)
+    setScrollQuestion(true)
+    setResponseReceived(false)
+    setIsEnableSend(false)
+    setAnimate(true)
+    setStartRecording(false)
+    setVadListening(false)
+    setSpeechAnimation(false)
+    let addedSymbols = false
+    setSend(true)
+    setTimeout(() => {
+      if (firstMsg) {
+        firstMsg = !firstMsg
+      }
+    }, 1000)
+    let input = {
+      SessionId: sessionId,
+      SenderId: userId,
+      Message: replacedInput,
+    }
+    setAnimationContainer(true)
+    try {
+      if (!input.SessionId) {
+        let sessionType = config.DEFAULT_SESSION_TYPE
+        let subject: any = localStorage.getItem('subject') ? localStorage.getItem('subject')?.toLowerCase() : 'biology'
+        let sessionCreation = await createSession(userId, sessionType, subject)
+        input.SessionId = sessionCreation.data._id
+        setSessionId(input.SessionId)
+        localStorage.setItem('sessionCreated', 'true')
+      }
+      let response: any = await getResponseFromModel(input, requestImage)
+      let data = response.serverResponse  
+      setAnswerFromLLM(data) // to resolve chat flicker , added response from llm to new veriable
+      setAnimate(false)
+      const chatData = {
+        id: chatDetails.length,
+        question: replacedInput,
+        _id: response.MessageId,
+        answer: '', // to resolve chat flicker
+        added: addedSymbols,
+        rating: '',
+        imageUrl: response.Url.Image,
+        liked: false,
+        disliked: false,
+        textAnswer: response.textAnswer,
+        questionImage: requestImage,
+        description: response.Url.Description,
+        modelLink: response.Url.Model,
+        embededLink: response.Url.EmbededLink,
+      }
+      setRatingObject((prevRatingObject: any) => [...prevRatingObject, { id: chatData._id, rating: null }])
+      setActiveChatId(chatData._id)
+      chatDetails.push(chatData)
+      setChatDetails(chatDetails)
+      setRequestImage('')
+      setMathMLTags([])
+      if (data) {
+        setResponse(data)
+        setInputFocus(true)
+        setAnimationContainerAnswer(true)
+        setId(chatDetails.length - 1)
+      }
+      setInputText('')
+      let textArea1: HTMLElement | null = document.getElementById('contentDiv')
+      if (textArea1) {
+        textArea1.innerHTML = ''
+        textArea1.innerText = ''
+      }
+      let textArea2: HTMLElement | null = document.getElementById('contentDiv2')
+      if (textArea2) {
+        textArea2.innerHTML = ''
+        textArea2.innerText = ''
+      }
+      setInputStyle(false)
+      const elementId = send ? 'textInput' : 'newTextInput'
+      const textarea = document.getElementById(elementId) as HTMLTextAreaElement
+      if (textarea) {
+        textarea.value = ''
+        textarea.scrollTop = textarea.scrollHeight
+      }
+    } catch (e) {
+      // alert("Something went wrong");
+      const userConfirmed = window.confirm('Something went wrong. Do you want to proceed to the banner page?');
+      
+      // If user clicks OK, navigate to the banner page
+      if (userConfirmed) {
+        router.push('/banner');
+      }
+    }
+  }
+
+  function replaceTextOutsideMath(text: any) {
+    const mathBlocks: any = []
+    const placeholder = '__MATH_BLOCK__'
+    text = text.replace(/\$\$([\s\S]*?)\$\$/g, (match: any) => {
+      mathBlocks.push(match) // Store the math block
+      return placeholder // Replace with placeholder
+    })
+    text = text.replace(/\\text{([^}]*)}/g, (match: any, p1: any) => p1)
+    let index = 0
+    text = text.replace(new RegExp(placeholder, 'g'), () => mathBlocks[index++])
+    return text
+  }
+ 
+  const processText = async (text: string) => {
+    text = text.replace(/\\\\/g, '\\');
+    text = text.replace(/\\\\\\\\/g, '\\\\');
+    text = await renderMath(text)
+    text = text.replace(/\\\\n/g,'\n');
+    text = text.replace(/\\n/g,'\n');
+    let processedText = await processLatexAndMarkdown(text)
+    return processedText;
+  }
+
+  const processLatexAndMarkdown = async (text: any) => {
+    const container = document.createElement('div');
+    const processMarkdown = async (text: string): Promise<string> => {
+      const svgRegex = /<svg[^>]*>[\s\S]*?<\/svg>/g;
+      const blockMathRegex = /\$\$([\s\S]*?)\$\$/g; // Block-level KaTeX
+      const inlineMathRegex = /\$(.*?)\$/g; // Inline KaTeX
+      const mathmlRegex = /<math[^>]*>[\s\S]*?<\/math>/g;
+      const tableRegex = /\|.*?\|[\s\S]*?(?=\n\n|\n$|$)/g;
+    
+      const svgs: string[] = [];
+      const blockMathExpressions: string[] = [];
+      const inlineMathExpressions: string[] = [];
+      const mathmlContent: string[] = [];
+      const markdownTables: string[] = [];
+    
+      // Step 1: Replace SVGs, block-level KaTeX, inline KaTeX, MathML, and tables with placeholders
+      let updatedText = text.replace(svgRegex, (match: string) => {
+        svgs.push(match);
+        return `{{SVG_${svgs.length - 1}}}`;
+      });
+    
+      updatedText = updatedText.replace(blockMathRegex, (match: any, content: string) => {
+        blockMathExpressions.push(content);
+        return `{{BLOCK_MATH_${blockMathExpressions.length - 1}}}`;
+      });
+    
+      updatedText = updatedText.replace(inlineMathRegex, (match: any, content: string) => {
+        inlineMathExpressions.push(content);
+        return `{{INLINE_MATH_${inlineMathExpressions.length - 1}}}`;
+      });
+    
+      updatedText = updatedText.replace(mathmlRegex, (match: string) => {
+        mathmlContent.push(match);
+        return `{{MATHML_${mathmlContent.length - 1}}}`;
+      });
+    
+      updatedText = updatedText.replace(tableRegex, (match: string) => {
+        markdownTables.push(match);
+        return `{{TABLE_${markdownTables.length - 1}}}`;
+      });
+    
+      // Step 2: Process text, treating `\n` between inline LaTeX as newlines
+      const splitText = updatedText.split(/\n/).map((line: string) => {
+        if (/{{INLINE_MATH_\d+}}/.test(line)) {
+          const processedLine = line.replace(/{{INLINE_MATH_(\d+)}}/g, (_: any, index: string | number) => {
+            const mathString = inlineMathExpressions[+index];
+            try {
+              return katex.renderToString(mathString, { throwOnError: false });
+            } catch (err) {
+              console.error("KaTeX Rendering Error:", err);
+              return `$${mathString}$`; // Fallback to raw expression
+            }
+          });
+          return `<p>${processedLine.trim()}</p>`;
+        }
+    
+        return line.trim() ? `<p>${line.trim()}</p>` : "";
+      });
+    
+      let joinedText = splitText.join("\n");
+    
+      // Step 3: Process table placeholders asynchronously
+      for (let i = 0; i < markdownTables.length; i++) {
+        const renderedTable = await marked.parse(markdownTables[i].trim());
+        renderedTable
+          .replace(/{{SVG_(\d+)}}/g, (_: any, index: string | number) => svgs[+index])
+          .replace(/{{BLOCK_MATH_(\d+)}}/g, (_: any, index: string | number) => {
+            const mathString = blockMathExpressions[+index];
+            try {
+              return `<div class="block-math">${katex.renderToString(mathString, {
+                throwOnError: false,
+                displayMode: true,
+              })}</div>`;
+            } catch (err) {
+              console.error("KaTeX Rendering Error:", err);
+              return `$$${mathString}$$`; // Fallback to raw expression
+            }
+          })
+          .replace(/{{INLINE_MATH_(\d+)}}/g, (_: any, index: string | number) => {
+            const mathString = inlineMathExpressions[+index];
+            try {
+              return katex.renderToString(mathString, { throwOnError: false });
+            } catch (err) {
+              console.error("KaTeX Rendering Error:", err);
+              return `$${mathString}$`; // Fallback to raw expression
+            }
+          })
+          .replace(/{{MATHML_(\d+)}}/g, (_: any, index: string | number) => mathmlContent[+index]);
+    
+        joinedText = joinedText.replace(`{{TABLE_${i}}}`, renderedTable);
+      }
+    
+      // Step 4: Reinsert SVGs, block-level KaTeX, and MathML placeholders
+      const finalText = joinedText
+        .replace(/{{SVG_(\d+)}}/g, (_: any, index: string | number) => svgs[+index])
+        .replace(/{{BLOCK_MATH_(\d+)}}/g, (_: any, index: string | number) => {
+          const mathString = blockMathExpressions[+index];
+          try {
+            return `<div class="block-math">${katex.renderToString(mathString, {
+              throwOnError: false,
+              displayMode: true,
+            })}</div>`;
+          } catch (err) {
+            console.error("KaTeX Rendering Error:", err);
+            return `$$${mathString}$$`; // Fallback to raw expression
+          }
+        })
+        .replace(/{{INLINE_MATH_(\d+)}}/g, (_: any, index: string | number) => {
+          const mathString = inlineMathExpressions[+index];
+          try {
+            return katex.renderToString(mathString, { throwOnError: false });
+          } catch (err) {
+            console.error("KaTeX Rendering Error:", err);
+            return `$${mathString}$`; // Fallback to raw expression
+          }
+        })
+        .replace(/{{MATHML_(\d+)}}/g, (_: any, index: string | number) => mathmlContent[+index]);
+    
+      return finalText;
+    };            
+    container.innerHTML = await processMarkdown(text);
+    const listItems = container.querySelectorAll('li');
+    listItems.forEach((li) => {
+        const paras = li.querySelectorAll('p');
+        paras.forEach((p) => {
+            li.innerHTML = li.innerHTML.replace(p.outerHTML, p.innerHTML);
+        });
+    });
+
+    // Ensure proper structure for <ul> and <ol>
+    container.querySelectorAll('ul, ol').forEach((list:any) => {
+        if (!list.textContent.trim()) {
+            list.remove();
+            return;
+        }
+        list.style.margin = '0'; 
+        list.style.padding = '0';
+        list.style.listStylePosition = 'inside';  
+        list.style.listStyleType = list.tagName === 'UL' ? 'disc' : 'disc'; 
+        list.querySelectorAll('li').forEach((item:any) => {
+            if (!item.textContent.trim()) {
+                item.remove();
+                return;
+            }
+            item.style.marginLeft = '1.5rem'; 
+            item.style.paddingLeft = '1.5rem'; 
+            item.style.lineHeight = '1.5';
+            item.style.display = 'list-item';
+            item.style.textIndent = '-0.5rem';
+        });
+    });
+    
+    container.querySelectorAll('table').forEach((table: any) => {
+      const scrollContainer = document.createElement('div')
+      // table scroll
+      scrollContainer.style.overflowX = 'scroll'
+      scrollContainer.style.width = '100%'
+      scrollContainer.style.margin = '0'
+      table.parentNode.insertBefore(scrollContainer, table)
+      scrollContainer.appendChild(table)
+      table.style.borderRadius = '50px'
+      table.style.width = '100%'
+      table.style.borderCollapse = 'collapse'
+      const headers = table.querySelectorAll('th')
+      headers.forEach((header: any, index: number) => {
+        header.style.paddingTop = '1rem'
+        header.style.paddingBottom = '1rem'
+        header.style.paddingLeft = '2rem'
+        header.style.textAlign = 'left'
+        if (index === 0) {
+          header.style.borderTopLeftRadius = '10px'
+        }
+        if (index === headers.length - 1) {
+          header.style.borderTopRightRadius = '10px'
+        }
+        if (index % 2 !== 0) {
+          header.style.backgroundColor = '#50A71C'
+        } else {
+          header.style.backgroundColor = '#41A007'
+        }
+      })
+
+      table.querySelectorAll('tr').forEach((row: any, indexRow: any, rows: NodeListOf<HTMLTableRowElement>) => {
+        const cells = row.querySelectorAll('td')
+        cells.forEach((cell: any, index: number) => {
+          cell.style.padding = '2rem'
+          cell.style.textAlign = 'left'
+          cell.style.fontSize = '20px'
+          cell.style.color = theme === 'dark' ? '#393f65' : '#FFF'
+          cell.style.borderLeft = theme === 'dark' ? '2px solid white' : ''
+          cell.style.borderRight = theme === 'dark' ? '2px solid white' : ''
+          cell.style.borderBottom = theme === 'dark' ? '2px solid white' : ''
+
+          cell.style.fontWeight = index === 0 ? '600' : '400'
+
+          if (index === 0 && indexRow === rows.length - 1) {
+            cell.style.borderBottomLeftRadius = '10px'
+          }
+          if (index === cells.length - 1 && indexRow === rows.length - 1) {
+            cell.style.borderBottomRightRadius = '10px'
+          }
+          if (index % 2 === 0) {
+            cell.style.backgroundColor = theme === 'dark' ? '#DBECFF4D' : '#272627'
+          } else {
+            cell.style.backgroundColor = theme === 'dark' ? '#FFFFFF4D' : '#3B3F38'
+          }
+        })
+
+        if (indexRow < rows.length - 1) {
+          row.style.borderBottom = '0.5px solid #FFFFFF33'
+        }
+      })
+    })
+    container.innerHTML = replaceBoldText(container)
+    container.innerHTML = container.innerHTML.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    container.innerHTML = container.innerHTML.replace(/\btop:\s*(-3\.394em)/g, 'top: -3.594em');
+    container.innerHTML = container.innerHTML.replace(/\btop:\s*(-2\.655em)/g, 'top: -2.455em');
+    const emptyP = document.createElement('p')
+    container.appendChild(emptyP)
+    container.innerHTML = container.innerHTML.replace(/(<br\s*\/?>\s*){2,}/g, '<br>').replace(/(<p>\s*<\/p>\s*){2,}/g, '<p></p>').replace(/<p>\s*<\/p>/g, '');
+    return container.innerHTML
+  }
+
+  function replaceBoldText(container: any) {
+    // Clone the container to avoid mutating the original content
+    const tempContainer = container.cloneNode(true);
+
+    // Traverse child nodes to selectively replace bold syntax
+    function processNode(node: any): void {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            // Skip processing for protected elements like span.katex or other specific tags
+            if (node.matches('span.katex, svg, semantics')) {
+                return;
+            }
+
+            // Recursively process child nodes
+            Array.from(node.childNodes).forEach(processNode);
+        } else if (node.nodeType === Node.TEXT_NODE) {
+            // Replace bold syntax in text nodes only
+            const textContent = node.textContent;
+            if (textContent) {
+                const updatedContent = textContent.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                // Replace text node with an HTML fragment if bold syntax was replaced
+                if (updatedContent !== textContent) {
+                    const fragment = document.createRange().createContextualFragment(updatedContent);
+                    node.replaceWith(fragment);
+                }
+            }
+        }
+    }
+
+    // Process the container's child nodes
+    Array.from(tempContainer.childNodes).forEach(processNode);
+
+    // Return the updated HTML as a string
+    return tempContainer.innerHTML;
+}
+
+
+  const animateParagraph = async (paragraphElement: HTMLElement, index: number, lastParagraph: boolean) => {
+    return new Promise<void>((resolve) => {
+      const animateTextNodes = async (element: Node, parent: Node) => {
+        if (!element) return
+        const childNodes = Array.from(element.childNodes)
+        for (const node of childNodes) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const textNode = node as Text
+            const words = textNode.textContent?.split(/\s+/) || []
+            textNode.textContent = ''
+            for (const [wordIndex, word] of words.entries()) {
+              const span = document.createElement('span')
+              span.textContent = word
+              span.style.opacity = '0'
+              span.style.transition = 'opacity 1s ease-in'
+              parent.appendChild(span)
+              if (wordIndex < words.length - 1) {
+                const space = document.createTextNode(' ')
+                parent.appendChild(space)
+              }
+              setTimeout(() => {
+                requestAnimationFrame(() => {
+                  span.style.opacity = '1'
+                })
+              }, wordIndex * 25)
+            }
+          } else if (node.nodeType === Node.ELEMENT_NODE) {
+            const elementNode = node as HTMLElement
+            if (elementNode.tagName === 'B' || elementNode.tagName === 'STRONG') {
+              const boldWords = elementNode.textContent?.split(/\s+/) || []
+              for (const [wordIndex, word] of boldWords.entries()) {
+                const boldSpan = document.createElement('span')
+                boldSpan.textContent = word
+                boldSpan.style.opacity = '0'
+                boldSpan.style.transition = 'opacity 1s ease-in'
+                boldSpan.style.fontWeight = 'bold' // Apply bold styling
+                parent.appendChild(boldSpan)
+                if (wordIndex < boldWords.length - 1) {
+                  const space = document.createTextNode(' ')
+                  parent.appendChild(space)
+                }
+                setTimeout(() => {
+                  requestAnimationFrame(() => {
+                    boldSpan.style.opacity = '1'
+                  })
+                }, wordIndex * 25)
+              }
+            } else {
+              const clonedNode = elementNode.cloneNode(false) as HTMLElement
+              parent.appendChild(clonedNode)
+              await animateTextNodes(node, clonedNode)
+            }
+          }
+        }
+      }
+      const temporaryContainer = document.createElement('div')
+      animateTextNodes(paragraphElement, temporaryContainer).then(() => {
+        paragraphElement.innerHTML = ''
+        paragraphElement.appendChild(temporaryContainer)
+        if (lastParagraph) {
+          const emptyP = document.createElement('p')
+          emptyP.classList.add('last-word')
+          emptyP.style.opacity = '0'
+          emptyP.style.transition = 'opacity 1s ease-in'
+          paragraphElement.appendChild(emptyP)
+          setTimeout(() => {
+            emptyP.style.opacity = '1'
+          }, 0)
+          paragraphElement.appendChild(emptyP)
+          const lastSpan = paragraphElement.querySelector('.last-word')
+          if (lastSpan) {
+            lastSpan.addEventListener(
+              'transitionend',
+              () => {
+                let newChats = [...chatDetails]
+                // newChats[index].answer = answerFromLLM
+                newChats[index].added = true
+                setChatDetails(newChats)
+                setResponseReceived(true)
+                responseArray.push(answerFromLLM)
+              },
+              { once: true }
+            )
+          }
+        }
+        resolve()
+      })
+    })
+  }
+
+  const renderMath = (content: string) => {
+    return content.replace(/(\$\$.*?\$\$|\\\[.*?\\\]|\\\(.*?\\\)|\$.*?\$)/g, (match) => {
+      try {
+        const rawMath = match
+          .replace(/^\$\$|^\\\[|^\\\(|^\$/, '') // Remove opening delimiters
+          .replace(/\$\$$|\\\]$|\\\)$|\$$/, ''); // Remove closing delimiters
+        return katex.renderToString(rawMath, { throwOnError: false });
+      } catch (error) {
+        console.error('Error rendering math:', error);
+        return match; 
+      }
+    });    
+  }
+
+  function removeEmptyTags(container: HTMLElement) {
+    const elements = container.querySelectorAll('p, li')
+    elements.forEach((element) => {
+      if (!element.textContent?.trim()) {
+        element.remove()
+      }
+    })
+  }
+
+  const animateText = async (index: any) => {
+    const textElement = document.getElementById(`split-${index}`)
+    if (textElement) {
+      let text = answerFromLLM
+      if (text) {
+        let processedText = await processText(text)
+        const tempContainer = document.createElement('div')
+        tempContainer.innerHTML = processedText
+        removeEmptyTags(tempContainer)
+        processedText = tempContainer.innerHTML
+        let blocks = processedText.split(/<p.*?>/)
+          const processAndAnimateBulletPoints = async (
+            listElement: HTMLElement,
+            bulletPoints: string[],
+            isLastBlock: boolean
+          ) => {
+            for (const [pointIndex, bulletPoint] of bulletPoints.entries()) {
+              if (bulletPoint.trim() !== '') {
+                const bulletPointElement = document.createElement('li')
+                bulletPointElement.innerHTML = renderMath(bulletPoint)
+                listElement.appendChild(bulletPointElement)
+                await animateParagraph(bulletPointElement, index, isLastBlock && pointIndex === bulletPoints.length - 1)
+              }
+            }
+          }
+
+          const addAndAnimateBlocks = async () => {
+            for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+              const blockText = blocks[blockIndex].trim()
+              const isLastBlock = blockIndex === blocks.length - 1
+              let elementToAnimate: HTMLElement | null = null
+              if (blockText.startsWith('<li>')) {
+                const listElement = document.createElement('ul')
+                const bulletPoints = blockText.split(/<li>|<\/li>/).filter((point: any) => point.trim() !== '')
+                await processAndAnimateBulletPoints(listElement, bulletPoints, isLastBlock)
+                textElement.appendChild(listElement)
+                elementToAnimate = listElement
+              } else if (blockText.includes('<table')) {
+                const tableElement = document.createElement('div')
+                tableElement.innerHTML = renderMath(blockText)
+                textElement.appendChild(tableElement)
+                const emptyPTags = tableElement.querySelectorAll('p');
+                emptyPTags.forEach((p :any) => {
+                  if (!p.textContent.trim()) {
+                    p.remove();
+                  }
+                });
+                tableElement.innerHTML = tableElement.innerHTML.replace(/(<br\s*\/?>\s*){2,}/g, '<br>');
+                await animateParagraph(tableElement, index, isLastBlock)
+                elementToAnimate = tableElement
+              } else if (blockText.includes('$$')) {
+                const paragraphElement = document.createElement('div')
+                paragraphElement.innerHTML = renderMath(`<p>${blockText}</p>`)
+                textElement.appendChild(paragraphElement)
+                const emptyPTags = paragraphElement.querySelectorAll('p');
+                emptyPTags.forEach((p :any) => {
+                  if (!p.textContent.trim()) {
+                    p.remove();
+                  }
+                });
+                await animateParagraph(paragraphElement, index, isLastBlock)
+                await waitForParagraphToFinish(paragraphElement)
+              } else {
+                const paragraphElement = document.createElement('div')
+                paragraphElement.style.paddingTop = '10px'
+                paragraphElement.innerHTML = renderMath(`${blockText}`) //<br/>
+                textElement.appendChild(paragraphElement)
+                const emptyPTags = paragraphElement.querySelectorAll('p');
+                emptyPTags.forEach((p :any) => {
+                  if (!p.textContent.trim()) {
+                    p.remove();
+                  }
+                });
+                paragraphElement.innerHTML.replace(/(<br\s*\/?>\s*){2,}/g, '<br>');
+                await animateParagraph(paragraphElement, index, isLastBlock)
+                elementToAnimate = paragraphElement
+              }
+              if (elementToAnimate && blockIndex < blocks.length - 1) {
+                await waitForParagraphToFinish(elementToAnimate)
+              }
+            }
+            const totalWordCount = answerFromLLM.split(/\s+/).length
+            setWordCount(totalWordCount + wordCount)
+            updateCredits(totalWordCount)
+          }
+
+          await addAndAnimateBlocks()
+      }
+    }
+  }
+
+  const waitForParagraphToFinish = (paragraphElement: HTMLElement): Promise<void> => {
+    return new Promise<void>((resolve) => {
+      const lastSpan = paragraphElement.querySelector('span:last-of-type')
+      if (!lastSpan) {
+        resolve()
+        return
+      }
+      const onTransitionEnd = (event: Event) => {
+        if (event.target === lastSpan) {
+          lastSpan.removeEventListener('transitionend', onTransitionEnd)
+          resolve()
+        }
+      }
+      lastSpan.addEventListener('transitionend', onTransitionEnd)
+      setTimeout(() => {
+        lastSpan.removeEventListener('transitionend', onTransitionEnd)
+        resolve()
+      }, 1500)
+    })
+  }
+
+  const handleSendRating = async (comment: string, modalClose: boolean, chatId: string) => {
+    let ratingDetails = {
+      ChatId: chatId,
+      Rating: isLiked ? 5 : 0,
+      Comment: comment.length > 0 ? comment : '',
+    }
+    let save: any = await saveRating(ratingDetails)
+    setRatingObject((prevRatingObject: any) => {
+      return prevRatingObject.map((item: any) => {
+        if (item.id === activeChatId) {
+          return { ...item, rating: ratingDetails.Rating }
+        }
+        return item
+      })
+    })
+    if (save) {
+      setRatingMessageId('')
+    }
+    if (modalClose) {
+      setSubmittedRating(true)
+      setFeedback(false)
+      setRatingMessageId('')
+    }
+  }
+  const clearChatDetails = () => {
+    setChatDetails([])
+  }
+  const scrollToPosition = () => {
+    setDropDownClicked(true)
+    const scrollContainer = document.getElementById('textInput')
+    if (scrollContainer) {
+      scrollContainer.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+  /** handle scroll and make mid question & answer as active chat */
+  const handleScroll = () => {
+    const container = containerRef.current
+    if (container) {
+      const scrollPosition = container.scrollTop
+      const middlePosition = scrollPosition + container.clientHeight * 0.75
+      const topPosition = scrollPosition
+      const middleChatItem = chatDetails.find((item) => {
+        const element = document.getElementById(`newData-${item.id}`)
+        if (element) {
+          const elementTop = element.offsetTop
+          const elementBottom = elementTop + element.offsetHeight
+          return elementTop <= middlePosition && middlePosition <= elementBottom
+        }
+        return false
+      })
+      if (middleChatItem) {
+        setActiveChatId(middleChatItem._id)
+      }
+      if (topPosition == 0) {
+        setActiveChatId(chatDetails[0]._id)
+      }
+    }
+  }
+  // Highlight search term
+  const handleFilterInput = (text: string) => {
+    if (!issearchTerm || !text) {
+      return <span>{text}</span>
+    }
+    const regex = new RegExp(`(${issearchTerm})`, 'gi')
+    const parts = text.split(regex)
+    return (
+      <span>
+        {parts.map((part, index) =>
+          index % 2 === 0 ? (
+            <span key={index}>{part}</span>
+          ) : (
+            <span key={index} className="bg-searchTermColor dark:bg-darkSearchTermColor">
+              {part}
+            </span>
+          )
+        )}
+      </span>
+    )
+  }
+  
+  function handleHistory() {
+    setClicked(!clicked)
+    setSearchTerm('')
+  }
+  /** handle history select & view chat */
+  const handleHistoryItemClick = async (messages: any) => {
+    responseArray = []
+    setInputText('')
+    setSessionId('')
+    setRequestImage('')
+    setIsEnableSend(false)
+    setResponseReceived(true)
+    setSpeechAnimation(false)
+    setRatingObject([])
+    setIconSelectedLike(false)
+    setCurrentChatId(null)
+    cancelTls.current()
+    // If clicked in view history -> ongoing session will be ended
+    const isSessionCreated = localStorage.getItem('sessionCreated')
+    if (isSessionCreated) {
+      setGlobalMode('history')
+      previousMode = 'history'
+      localStorage.setItem('isHistory', 'true')
+      if (chatDetails[0]?.question || chatDetails[0]?.questionImage) {
+        updateSession(sessionId)
+      }
+    }
+    localStorage.removeItem('sessionCreated')
+    setSessionId(messages[0]?.data?.SessionId)
+    setActiveChatId(messages[1]?._id)
+    setSend(false)
+    setAnimationContainer(false)
+    clearChatDetails()
+    // messages && messages.length ? setId(messages.length / 2) : setId(-1)
+    setTimeout(async () => {
+      let conversationCount = 0
+      let historyRating = []
+      for (let i = 0; i < messages.length; i += 2) {
+        let image = await checkImageUrl(
+          `${messages[i + 1]?.data?.ImageUrl}${messages[i + 1].data.Extension ? messages[i + 1].data.Extension : '.jpg'
+          }`
+        )
+        const message = messages[i]
+        const rating = messages[i + 1]?.Rating
+        const chatObj: chatDetails = {
+          id: conversationCount,
+          question: message.data.Message,
+          answer: await processText(messages[i + 1]?.data?.Message),
+          _id: messages[i + 1]?._id,
+          added: true,
+          rating: rating !== null ? rating : null,
+          imageUrl: image,
+          // remainingResponse: messages[i + 1]?.data?.remainingResponse ? messages[i + 1]?.data?.remainingResponse : "",
+          description: messages[i + 1]?.Description,
+          modelLink: messages[i + 1]?.ModelLink,
+          embededLink: messages[i + 1]?.EmbededLink,
+          liked: rating === 5 ? true : false,
+          disliked: rating === 0 ? true : false,
+          textAnswer: messages[i + 1]?.data?.Message,
+          // textAnswer: messages[i + 1]?.data?.Message + ' ' + messages[i + 1]?.data?.remainingResponse,
+          questionImage: message.data.File
+            ? `https://${config.BUCKET_NAME}.s3.${config.S3_REGION}.amazonaws.com/${message.data.File}`
+            : '',
+        }
+        responseArray.push(chatObj.answer)
+        setResponseArray(responseArray)
+        historyRating.push({ id: chatObj._id, rating: chatObj.rating })
+        setChatDetails((prevChatDetails) => [...prevChatDetails, chatObj])
+        conversationCount++
+      }
+      setRatingObject(historyRating)
+    }, 500)
+    if (chatDetails) {
+      setAnimationContainer(true)
+      setSend(true)
+      setExploreWelcomeText(false)
+    }
+  }
+  const scrollToBottom = () => {
+    if (containerRef.current) {
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'smooth',
+      })
+    }
+  }
+  const scrollToTop = () => {
+    if (containerRef.current) {
+      containerRef.current.scrollTo({
+        top: 0,
+        behavior: 'smooth', // Smooth scrolling effect
+      })
+    }
+  }
+
+  const autoResize = () => {
+    const textarea = textareaRef.current
+    if (textarea) {
+      textarea.style.height = '0px'
+      textarea.style.height = `${textarea.scrollHeight}px`
+    }
+  }
+
+  useEffect(() => {
+    autoResize()
+  })
+
+  useEffect(() => {
+    const updateChatDetails = async () => {
+      const updatedDetails = await Promise.all(
+        chatDetails.map(async (chat, index) => {
+          if(responseArray[index]){
+            const updatedAnswer = await processText(responseArray[index])
+            return { ...chat, answer: updatedAnswer }
+          } else {
+            return chat
+          }
+        })
+      )
+      setChatDetails(updatedDetails)
+      if (answerFromLLM) {
+        const lastDiv = document.getElementById(`split-${chatDetails.length - 1}`)
+        if (lastDiv) {
+          // answerFromLLM = answerFromLLM.replace(/\\\\n/g,'\n');
+          // answerFromLLM = answerFromLLM.replace(/\\n/g,'\n');
+          // answerFromLLM = await replaceOutsideLatex(answerFromLLM)
+          answerFromLLM = answerFromLLM.replace(/\\\\/g, '\\');
+          answerFromLLM = answerFromLLM.replace(/\\\\\\\\/g, '\\\\');
+          // text = text.replace(/\\text{([^}]*)}/g, (match: any, p1: any) => p1)
+          answerFromLLM = replaceTextOutsideMath(answerFromLLM)
+          answerFromLLM = await renderMath(answerFromLLM)
+          answerFromLLM = answerFromLLM.replace(/\\\\n/g,'\n');
+          answerFromLLM = answerFromLLM.replace(/\\n/g,'\n');
+          const updatedAnswerFromLLM = await processLatexAndMarkdown(answerFromLLM)
+          lastDiv.innerHTML = updatedAnswerFromLLM // Update the content of the last div
+          lastDiv.innerHTML = lastDiv.innerHTML.replace(/(<br\s*\/?>\s*){2,}/g, '<br>').replace(/(<p>\s*<\/p>\s*){2,}/g, '<p></p>').replace(/<p>\s*<\/p>/g, '');
+        }
+      }
+    }
+    updateChatDetails()
+  }, [theme])
+
+const renderThemeMathMLToImage = async (mathML: string, index: number) => {
+  // Create a new div to hold the MathML
+  
+  const mathDiv = document.createElement('div');
+  mathDiv.innerHTML = mathML;
+  mathDiv.style.fontFamily = 'Inter, sans-serif';
+  mathDiv.style.fontSize = '24px';
+  mathDiv.style.color = theme === 'dark' ? '#393F65' : 'white';
+  mathDiv.style.display = 'inline-block';
+  mathDiv.style.opacity = '1'; // Make sure the MathML has full opacity
+
+  const containerDiv = document.createElement('div');
+  containerDiv.style.opacity = '0';  // Set container's opacity to 0
+  containerDiv.style.position = 'absolute'; // Position off-screen to avoid layout impact
+  containerDiv.style.left = '-9999px'; // Place the container off-screen
+
+  // Append the mathDiv to the container div
+  containerDiv.appendChild(mathDiv);
+
+  // Append the container div to the body
+  document.body.appendChild(containerDiv);
+  // document.body.appendChild(mathDiv);
+  window.MathJax.typesetPromise();
+  htmlToImage
+    .toPng(mathDiv)
+    .then((dataUrl) => {
+      if (dataUrl === 'data:,') {
+        return;
+      }
+      const img = new Image();
+      img.src = dataUrl;
+      img.style.width = `${mathDiv.offsetWidth}px`;
+      img.style.display = 'inline';
+      img.style.verticalAlign = 'middle';
+
+      // Get the content div and find the image at the specified index
+      const contentDiv = document.getElementById('contentDiv');
+      if (contentDiv) {
+        const existingImages = contentDiv.getElementsByTagName('img');
+
+        // If an image exists at the specified index, replace it
+        if (existingImages[index]) {
+          // Replace the image with the new one
+          existingImages[index].replaceWith(img);
+        }
+      }
+
+      // Clean up by removing the temporary MathML div
+      document.body.removeChild(containerDiv);
+    })
+    .catch((error) => {
+      console.error("Error generating image from MathML:", error);
+      document.body.removeChild(containerDiv);
+    });
+};
+
+
+  /** useEffect events */
+  useEffect(() => {
+    if (!isMicVisible) {
+      setMicVisible(false)
+    }
+  }, [isMicVisible])
+
+  useEffect(() => {
+    /** switch between modes */
+    if (globalMode == 'speech') {
+      setInputMode('speech')
+      if (previousMode !== 'speech') {
+        previousMode = 'speech'
+      }
+      if (isVadListening) {
+        setSpeechPlaceHolder('Start speaking...')
+      } else {
+        setSpeechPlaceHolder('Click on the mic...')
+      }
+    } else if (globalMode != 'speech') {
+      setIsRecording(false)
+      setSpeechAnimation(false)
+      setInputMode('text')
+      previousMode = 'text'
+      setTextPlaceHolder('Type here...')
+    }
+  }, [globalMode, isVadListening])
+
+  useEffect(() => {
+    const lastButton = document.querySelector('button[title="Contextual tab (Alt+0)"]')
+    if (lastButton) {
+      lastButton.classList.add('hideOpacity')
+    }
+  })
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      // if (mathKeyboardModal) {
+        //if (typeof window !== 'undefined' && window.com && window.com.wiris) 
+          {
+          // const newEditor = window.com.wiris.jsEditor.JsEditor.newInstance({ language: 'en' })
+          // newEditor.insertInto(document.getElementById('editorContainer'))
+          // if (newEditor) 
+            {
+            setTimeout(() => {
+              const button = document.querySelector('input[title="Go to handwritten mode"]');
+              if (button) {
+                button.classList.add('hideButton')
+              }
+              const lastButton = document.querySelector('button[title="Contextual tab (Alt+0)"]')
+              if (lastButton) {
+                lastButton.classList.add('hideButton')
+              }
+            }, 500)
+            if (mathMLToBeEdited != '') {
+              // newEditor.setMathML(mathMLToBeEdited)
+            }
+            // setEditor(newEditor)
+          }
+          setEditorInitialized(true)
+        }
+    }, 1000)
+    return () => {
+      clearTimeout(timeoutId)
+    }
+  }, [window.com])
+
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (drawEquation) 
+      {
+        // if (typeof window !== 'undefined' && window.com && window.com.wiris) 
+        {
+          const newEditor = window.com.wiris.jsEditor.JsEditor.newInstance({ language: 'en' })
+          newEditor.insertInto(document.getElementById('handContainer'))
+          // if (newEditor) 
+          {
+            setTimeout(() => {
+              const handContainer = document.getElementById('handContainer');
+              if (handContainer) {
+              // Add class for fade-in
+              handContainer.classList.add('slide-in');
+              newEditor.insertInto(handContainer);
+              }
+              // Trigger the visibility change
+              setTimeout(() => {
+                if (handContainer) {
+                handContainer.classList.add('visible');
+                }
+              }, 0);
+              const button = handContainerRef.current?.querySelector('input[title="Go to handwritten mode"]') as HTMLInputElement || null;
+              if (button) {
+                button.click()
+              }
+            }, 700)
+            setTimeout(() => {
+              const keyboardButton = handContainerRef.current?.querySelector('input[title="Use keyboard"]');
+              if (keyboardButton) {
+                keyboardButton.classList.add('hideButton')
+              }
+              const element = handContainerRef.current?.querySelector('.wrs_handContainer');
+              element?.classList.add('enableDrawEquation');
+              const toolbar = handContainerRef.current?.querySelector('.wrs_hand.wrs_recognitionType_math .wrs_toolbar');
+              if (toolbar) {
+                toolbar.classList.add('removeScale'); // Add your new class here
+              }
+            }, 700)
+            if (mathMLToBeEdited != '') {
+              newEditor.setMathML(mathMLToBeEdited)
+            }
+            setDrawEditor(newEditor)
+          }
+
+          setEditorInitialized(true)
+        }
+      }
+    }, 500)
+    return () => {
+      clearTimeout(timeoutId)
+    }
+  }, [window.com])
+
+  useEffect(() => {
+    if (drawEditor) {
+      const interval = setInterval(() => {
+        const generatedMathML = drawEditor.getMathML();
+        let loaderUrl = "https://www.wiris.net/demo/hand/resources/decoration/loading.gif?v=7.11.2.38e91d"
+        let loaderDiv = handContainerRef.current?.getElementsByClassName('wrs_previewImage')[0] as HTMLImageElement;
+        if (generatedMathML && generatedMathML.trim() !== '<math xmlns="http://www.w3.org/1998/Math/MathML"/>') {
+          if(loaderDiv?.src !== loaderUrl) {
+            setIsEquationReady(true);
+          } else {
+            setIsEquationReady(false);
+          }
+        } else {
+          setIsEquationReady(false);
+        }
+      }, 500);
+  
+      return () => clearInterval(interval);
+    }
+  }, [drawEditor]);
+  
+  
+  document.addEventListener('DOMContentLoaded', function () {
+    const elements = document.querySelectorAll('.wrs_handContainer');
+    if (elements.length > 0) {
+      elements[0].classList.add('temp')
+    }
+  });
+
+  const updateAllBorderTopColors = () => {
+    document.querySelectorAll('*').forEach((element) => {
+      const computedStyle = window.getComputedStyle(element)
+      if (computedStyle.borderTop === '1px solid rgb(0, 0, 0)') {
+        ; (element as HTMLElement).style.borderTop = '1px solid rgb(255, 255, 255)' // Update to white
+      }
+    })
+  }
+
+  useEffect(() => {
+    updateAllBorderTopColors()
+    const observer = new MutationObserver(() => {
+      updateAllBorderTopColors()
+      const wrsContainer = document.querySelector('.wrs_container');
+      if (wrsContainer) {
+        const elements = wrsContainer.querySelectorAll('span, div');
+        elements.forEach((el: any) => {
+          const applyStyles = (element: any) => {
+            const computedStyle: any = window.getComputedStyle(element);
+        
+            // Apply color for text elements
+            if (element.tagName === 'SPAN' || element.tagName === 'DIV') {
+              element.style.color = theme === 'dark' ? 'red' : 'green';
+            }
+        
+            // Apply border colors for non-SVG elements
+            ['borderTop', 'borderBottom', 'borderLeft', 'borderRight'].forEach((borderSide) => {
+              if (
+                computedStyle[`${borderSide}Style`] !== 'none' &&
+                computedStyle[`${borderSide}Width`] !== '0px'
+              ) {
+                element.style[`${borderSide}Color`] = theme === 'dark' ? '#393f65' : '#fff';
+              }
+            });
+            if (
+              element.tagName == 'line' ||
+              element.tagName == 'polyline' ||
+              element.tagName == 'path' ||
+              element.tagName == 'rect' ||
+              element.tagName == 'circle' ||
+              element.tagName == 'polygon'
+            ) {
+              element.style.stroke = theme === 'dark' ? '#393f65' : '#fff';
+            }
+            // Recursively apply styles to child elements
+            Array.from(element.children).forEach(applyStyles);
+          };
+        
+          // Apply styles to the current element and its children
+          applyStyles(el);
+        });
+        
+      }
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  })
+
+  useEffect(() => {
+    updateAllBorderTopColors()
+    const observer = new MutationObserver(() => {
+      updateAllBorderTopColors()
+      const wrsContainer = document.querySelector('.wrs_container');
+      if (wrsContainer) {
+        const elements = wrsContainer.querySelectorAll('span, div');
+        elements.forEach((el:any) => {
+          const computedStyle : any = window.getComputedStyle(el);
+          el.style.color = theme === 'dark' ? 'red' : 'green';
+          ['borderTop', 'borderBottom', 'borderLeft', 'borderRight'].forEach((borderSide) => {
+            if (
+              computedStyle[`${borderSide}Style`] !== 'none' &&
+              computedStyle[`${borderSide}Width`] !== '0px'
+            ) {
+              el.style[`${borderSide}Color`] = theme == 'dark' ? '#393f65' : '#fff';
+            }
+          });
+        });
+      }
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [theme])
+
+  useEffect(() => {
+    const toolbar: any = document.querySelector('.wrs_toolbar')
+    if (toolbar) {
+      toolbar.style.display = toolbar.style.display === 'none' ? 'block' : 'none'
+    }
+  }, [editor])
+
+  useEffect(() => {
+    if (inputText.trim().length > 0) {
+      setIsEnableSend(true)
+      const welcomeText = document.getElementById('welcomeTextId')
+      if (welcomeText) {
+        welcomeText.style.transition = 'opacity 0.3s ease'
+        welcomeText.style.opacity = '0'
+      }
+      setTimeout(() => {
+        setExploreWelcomeText(false)
+      }, 300)
+    } else {
+      if (chatDetails.length === 0 && inputText.trim().length === 0 && isResponseReceived) {
+        setTimeout(() => {
+          setExploreWelcomeText(true)
+        }, 500)
+      }
+      setIsEnableSend(false)
+    }
+  }, [inputText])
+
+  useEffect(() => {
+    if (exploreWelcomeText) {
+      const welcomeText = document.getElementById('welcomeTextId')
+      if (welcomeText) {
+        welcomeText.style.transition = 'opacity 0.75s ease'
+        setTimeout(() => {
+          welcomeText.style.opacity = '1'
+        }, 0)
+      }
+    }
+  }, [exploreWelcomeText])
+
+  // Multiple Audio Devices
+  useEffect(() => {
+    const fetchAudioDevices = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const audioInputDevices = devices.filter((device) => device.kind === 'audioinput')
+        setAudioDevices(audioInputDevices)
+      } catch (error) {
+        console.error('Error enumerating audio devices:', error)
+      }
+    }
+    fetchAudioDevices()
+  }, [modeFromPath])
+
+  useEffect(() => {
+    let grade = localStorage.getItem('grade') ? localStorage.getItem('grade') : '6'
+    if (exploreSubject && grade) {
+      if (exploreSubject != 'Explore') {
+        localStorage.setItem('subject', exploreSubject.toLowerCase())
+      }
+      for (let i in exploreWelcomeTextData) {
+        if (exploreWelcomeTextData[i].grade == grade) {
+          for (let j in exploreWelcomeTextData[i].subjects) {
+            if (exploreWelcomeTextData[i].subjects[j].subject == exploreSubject) {
+              setWelcomeText(exploreWelcomeTextData[i].subjects[j])
+              break
+            }
+          }
+        }
+      }
+    }
+  }, [exploreSubject])
+
+  useEffect(() => {
+    if (editEquation) {
+      const imgTagRegex = /<img[^>]*src=["']([^"']+)["'][^>]*>/g
+      let match
+      let index = 0
+      let foundIndex = -1
+      let foundSrc = ''
+      while ((match = imgTagRegex.exec(inputText)) !== null) {
+        const src = match[1]
+        if (src == editEquation) {
+          foundIndex = index
+          foundSrc = src
+          break
+        }
+        index++
+      }
+      if (foundIndex !== -1) {
+        setMathMLToBeEdited(mathMLTags[foundIndex])
+        setFoundSrc(foundSrc)
+      }
+    }
+  }, [editEquation])
+
+  useEffect(() => {
+    console.log("edit edit", mathMLToBeEdited)
+    if (mathMLToBeEdited != '') {
+      // const newEditor = window.com.wiris.jsEditor.JsEditor.newInstance({ language: 'en' })
+      // newEditor.insertInto(document.getElementById('editorContainer'))
+      // if (newEditor) 
+        {
+        setTimeout(() => {
+          const button = document.querySelector('input[title="Go to handwritten mode"]');
+          if (button) {
+            button.classList.add('hideButton')
+          }
+          const lastButton = document.querySelector('button[title="Contextual tab (Alt+0)"]')
+          if (lastButton) {
+            lastButton.classList.add('hideButton')
+            setMathKeyboardModal(true)
+          }
+        }, 500)
+        // if (mathMLToBeEdited != '') {
+        //   newEditor.setMathML(mathMLToBeEdited)
+        // }
+        // setEditor(newEditor)
+      }
+    }
+  }, [mathMLToBeEdited])
+
+  useEffect(() => {
+    /** update sessions if there are any questions asked by user , else delete session if it is a empty chat */
+    if (isNewChat) {
+      setExploreWelcomeText(true)
+      cancelTls.current()
+      if (sessionId != '') {
+        if (chatDetails[0]?.question || chatDetails[0]?.questionImage) {
+          updateSession(sessionId)
+        }
+      }
+      localStorage.removeItem('sessionCreated')
+      localStorage.removeItem('isHistory')
+      setSend(false)
+      previousMode = ''
+      clearChatDetails()
+      setInputText('')
+      setId(-1)
+      setResponseReceived(true)
+      let sessionType = config.DEFAULT_SESSION_TYPE
+      let userId = localStorage.getItem('userId')
+      fetchData(userId, sessionType)
+      setIsNewChat(false)
+      return () => {
+        localStorage.removeItem('sessionCreated')
+        setRequestImage('')
+        setIsEnableSend(false)
+      }
+    }
+    setIsNewChat(false)
+  }, [isNewChat])
+
+  useEffect(() => {
+    return () => {
+      setMathKeyboardModal(false);
+      setDrawEquation(false);
+    }
+  }, [])
+
+  useEffect(() => {
+    for (let i = 0; i < ratingObject.length; i++) {
+      if (ratingObject[i].id == activeChatId) {
+        if (ratingObject[i].id == activeChatId && ratingObject[i].rating != null && submittedRating) {
+          setSubmittedRating(false)
+        }
+      }
+    }
+  }, [ratingObject, submittedRating])
+
+  // History Container
+  useEffect(() => {
+    const handleOutSideClick = (event: MouseEvent) => {
+      if (historyContainerRef.current && !historyContainerRef.current.contains(event.target as Node)) {
+        setClicked(false)
+        setSearchTerm('')
+      }
+      if (responseContainerRef.current && !responseContainerRef.current.contains(event.target as Node)) {
+        setResponseImageModal(false)
+      }
+    }
+    window.addEventListener('mousedown', handleOutSideClick)
+    return () => {
+      window.removeEventListener('mousedown', handleOutSideClick)
+    }
+  }, [historyContainerRef])
+
+  useEffect(() => {
+    if (scrollQuestion) {
+      scrollQuestionPart(chatDetails.length - 1)
+      setScrollQuestion(false)
+    }
+  }, [scrollQuestion])
+
+  // TTS
+  useEffect(() => {
+    /* Text to speech handle */
+    setFeedback(false)
+    setChapter(true)
+    setIconClick(1)
+    function _textToSpeech(data: any): null {
+      setIsReading(true)
+      utterance = new SpeechSynthesisUtterance(data)
+      utterance.onend = () => {
+        setIsReading(false); // Set isReading to false when the speech finishes
+      };  
+      window.speechSynthesis.speak(utterance)
+      return null
+    }
+    textToSpeech.current = _textToSpeech
+  }, [])
+
+  useEffect(() => {
+    if (ratingMessageId != '') {
+      setFeedback(true)
+      handleSendRating('', false, ratingMessageId)
+    }
+  }, [isLiked, ratingMessageId])
+
+  useEffect(() => {
+    const _cancelTls = function () {
+      setIsReading(false)
+      window.speechSynthesis.cancel()
+      return null
+    }
+    cancelTls.current = _cancelTls
+  }, [])
+
+  // animateText function call based on mode
+  /** FOR DEV PURPOSE */
+  useEffect(() => {
+    animateText(id)
+  }, [id])
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      localStorage.clear()
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => {
+      setVadListening(false)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (
+      localStorage.getItem('role') == 'STUDENT_TESTER' &&
+      (!localStorage.getItem('credits') || Number(localStorage.getItem('credits')) <= 0)
+    ) {
+      setTimerLimit(true)
+      setSelectedState(-1)
+      setIconHovered(-1)
+      setIconClicked(-1)
+      setUsedTime(101)
+    }
+  }, [isNewChat])
+
+  useEffect(() => {
+    /** end ongoing session if route to any other pages */
+    if (
+      globalMode == 'banner' ||
+      globalMode == 'practice' ||
+      globalMode == 'focus' ||
+      globalMode == 'assessment' ||
+      globalMode == 'study'
+    ) {
+      if (chatDetails[0]?.question || chatDetails[0]?.questionImage) {
+        updateSession(sessionId)
+      }
+    }
+    cancelTls.current()
+  }, [globalMode])
+
+  useEffect(() => {
+    if (isSendClicked) {
+      sendClicked()
+    }
+    setIsSendClicked(false)
+  }, [isSendClicked])
+
+  // Scroll Opacityh
+  useEffect(() => {
+    const container = containerRef.current
+    if (container) {
+      container.addEventListener('scroll', handleScroll)
+    }
+    // Clean up the event listener on component unmount
+    return () => {
+      if (container) container.removeEventListener('scroll', handleScroll)
+    }
+  })
+  useEffect(() => {
+    if (isdropDownClicked) {
+      scrollToPosition()
+    }
+  }, [isdropDownClicked])
+
+  // Response Loader
+  useEffect(() => {
+    if (containerRef1.current) {
+      const loader = Lottie.loadAnimation({
+        container: containerRef1.current,
+        renderer: 'svg',
+        loop: true,
+        autoplay: true,
+        animationData: require('../components/Loader/responseLoader.json'),
+      })
+      return () => loader.destroy()
+    }
+  }, [isResponseReceived, animate])
+
+  useEffect(() => {
+    /**Input cursor blur/focus based on mode */
+    if (selectedState === 0 && newTextareaRef.current) {
+      newTextareaRef.current.blur()
+    }
+    if (selectedState === 1 && newTextareaRef.current) {
+      newTextareaRef.current?.focus({ preventScroll: true })
+    }
+    if (isResponseReceived) {
+      if (selectedState === 1 || isNewChat) {
+        if (!timerLimit) {
+          textareaRef.current?.focus({ preventScroll: true })
+        }
+      }
+    }
+    if (selectedState === 0 || isNewChat) {
+      if (!timerLimit) {
+        textareaRef.current?.blur()
+      }
+    }
+  }, [selectedState, isNewChat, isResponseReceived])
+
+  useEffect(() => {
+    if (localStorage.getItem('isHistory') == 'true') {
+      if (selectedState == 0) {
+        if (!timerLimit) {
+          textareaRef.current?.blur()
+        }
+      } else {
+        if (chatDetails.length == 0) {
+          if (!timerLimit) {
+            textareaRef.current?.blur()
+          }
+        } else if (!clicked) {
+          if (!timerLimit) {
+            textareaRef.current?.focus({ preventScroll: true })
+          }
+        } else {
+          if (!timerLimit) {
+            textareaRef.current?.blur()
+          }
+        }
+      }
+    }
+  })
+
+  useEffect(() => {
+    let responseImage = document.querySelector('.responseImageDimension') as HTMLElement | null
+    if (responseImage) {
+      responseImage.onmousemove = function (e) {
+        if (e.target instanceof HTMLElement) {
+          e.target.style.setProperty('--x', (100 * e.offsetX) / e.target.offsetWidth + '%')
+          e.target.style.setProperty('--y', (100 * e.offsetY) / e.target.offsetHeight + '%')
+        }
+      }
+    }
+  })
+
+  useEffect(() => {
+    const checkOverflow = () => {
+      if (containerRef.current) {
+        let container = containerRef.current
+        const hasOverflow = container.scrollHeight > container.clientHeight
+        const scrollPosition = container.scrollTop + container.clientHeight
+        const isAtBottom = Math.abs(container.scrollHeight - scrollPosition) < 250
+        const isAtTop = container.scrollTop === 0
+        if (isAtBottom) {
+          setIsOverflowing(false)
+        } else {
+          setIsOverflowing(hasOverflow)
+        }
+        setIsAtTop(isAtTop) // Update state for top position
+      }
+    }
+    checkOverflow()
+    window.addEventListener('resize', checkOverflow)
+    return () => {
+      window.removeEventListener('resize', checkOverflow)
+    }
+  })
+
+  useEffect(() => {
+    if (globalMode == 'text' && selectedState == -1) {
+      setIconClicked(1)
+      setSelectedState(1)
+      setIconHovered(1)
+      setGlobalMode('text')
+    }
+  }, [selectedState])
+
+  useEffect(() => {
+    if (window.MathJax && questionRef.current) {
+      window.MathJax.typesetPromise([questionRef.current]);
+    }
+    if(window.MathJax && inputTexRef.current){
+      window.MathJax.typesetPromise([inputTexRef.current])
+    }
+  }, [chatDetails , inputTexRef.current]);
+
+  useEffect(() => {
+    if (inputText.length > 0) {
+        // Check if inputText contains an image
+        const imageRegex = /<img[^>]*>/g; // Updated regex to find all image tags without src
+        const matches = [...inputText.matchAll(imageRegex)];
+        if (matches.length > 0) {
+          window.MathJax.typesetPromise();
+          for(let i in matches){
+            renderThemeMathMLToImage(mathMLTags[i], Number(i))
+          }
+        }
+    }
+}, [theme]);
+
+function createNewEditor(){
+  console.log("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+  // const newEditor = window.com.wiris.jsEditor.JsEditor.newInstance({ language: 'en' })
+  // newEditor.insertInto(document.getElementById('editorContainer'))
+  // if (newEditor) 
+    {
+    setTimeout(() => {
+      const button = document.querySelector('input[title="Go to handwritten mode"]');
+      if (button) {
+        button.classList.add('hideButton')
+      }
+      const lastButton = document.querySelector('button[title="Contextual tab (Alt+0)"]')
+      if (lastButton) {
+        lastButton.classList.add('hideButton')
+      }
+    }, 500)
+    // setEditor(newEditor)
+  }
+console.log("create new editor")
+  const newDrawEditor = window.com.wiris.jsEditor.JsEditor.newInstance({ language: 'en' })
+  newDrawEditor.insertInto(document.getElementById('handContainer'))
+  if (newDrawEditor) 
+    {
+    setTimeout(() => {
+      const handContainer = document.getElementById('handContainer');
+      if (handContainer) {
+      // Add class for fade-in
+      handContainer.classList.add('slide-in');
+      newDrawEditor.insertInto(handContainer);
+      }
+      // Trigger the visibility change
+      setTimeout(() => {
+        if (handContainer) {
+        handContainer.classList.add('visible');
+        }
+      }, 0);
+      const button = handContainerRef.current?.querySelector('input[title="Go to handwritten mode"]') as HTMLInputElement || null;
+      if (button) {
+        button.click()
+      }
+    }, 700)
+    setTimeout(() => {
+      const keyboardButton = handContainerRef.current?.querySelector('input[title="Use keyboard"]');
+      if (keyboardButton) {
+        keyboardButton.classList.add('hideButton')
+      }
+      const element = handContainerRef.current?.querySelector('.wrs_handContainer');
+      element?.classList.add('enableDrawEquation');
+      const toolbar = handContainerRef.current?.querySelector('.wrs_hand.wrs_recognitionType_math .wrs_toolbar');
+      if (toolbar) {
+        toolbar.classList.add('removeScale'); // Add your new class here
+      }
+    }, 700)
+    setDrawEditor(newDrawEditor)
+  }
+}
+  async function renderMathMLToImage(editorName: any, opt:string = 'editor') {
+    let mathML
+    if (opt == 'draw'){
+      mathML =  editorName.getMathML()
+    }else{
+      mathML =  Mathlive.convertLatexToMathMl(editor)
+    }
+    //const mathML =  editor // editorName.getMathML()
+    console.log(editor)
+    const mathDiv = document.createElement('div')
+    mathDiv.innerHTML =  mathML
+    mathDiv.style.fontFamily = 'Inter, sans-serif';
+    mathDiv.style.fontSize = '24px'
+    mathDiv.style.color = theme === 'dark' ? '#393F65' : 'white'
+    mathDiv.style.display = 'inline-block'
+
+    const contentDiv = document.getElementById('contentDiv')
+    if (contentDiv) {
+      if (mathMLToBeEdited) {
+        const imgToEdit = [...contentDiv.querySelectorAll('img')].find((img) => img.src == foundSrc)
+        if (imgToEdit) {
+          // document.body.appendChild(mathDiv)
+          contentDiv.appendChild(mathDiv)
+          await window.MathJax.typesetPromise();
+          const imgIndex = [...contentDiv.querySelectorAll('img')].indexOf(imgToEdit)
+          htmlToImage
+            .toPng(mathDiv)
+            .then((dataUrl) => {
+              imgToEdit.src = dataUrl
+              imgToEdit.style.width = `${mathDiv.offsetWidth}px`
+              imgToEdit.style.display = 'inline'
+              imgToEdit.style.verticalAlign = 'middle'
+              const allImages = contentDiv.querySelectorAll('img')
+              if (allImages[imgIndex]) {
+                allImages[imgIndex].before(imgToEdit)
+              } else {
+                contentDiv.appendChild(imgToEdit)
+              }
+              const updatedMathMLTags = [...mathMLTags]
+              updatedMathMLTags[imgIndex] = mathML
+              setMathMLTags(updatedMathMLTags)
+            })
+            .catch((error) => {
+              console.error('Could not render MathML to image:', error)
+            })
+            .finally(() => {
+              contentDiv.removeChild(mathDiv)
+              setMathMLToBeEdited('')
+              setEditEquation('')
+              setFoundSrc('')
+              // createNewEditor()  //ivar
+            })
+          return
+        }
+      }
+      contentDiv.appendChild(mathDiv)
+      await window.MathJax.typesetPromise();
+      htmlToImage
+        .toPng(mathDiv)
+        .then((dataUrl) => {
+          if (dataUrl == 'data:,') {
+            return
+          }
+          const img = new Image()
+          img.src = dataUrl
+          img.style.width = `${mathDiv.offsetWidth}px`
+          img.style.display = 'inline'
+          img.style.verticalAlign = 'middle'
+          if (savedRange) {
+            const selection = window.getSelection()
+
+            const preInsertImgCount = Array.from(contentDiv.querySelectorAll('img')).filter((img) => {
+              const tempRange = document.createRange();
+              tempRange.selectNode(img);
+              return tempRange.compareBoundaryPoints(Range.END_TO_START, savedRange) < 0;
+            }).length;
+            selection?.removeAllRanges()
+            selection?.addRange(savedRange)
+            savedRange.deleteContents()
+            savedRange.insertNode(img)
+            const space = document.createTextNode('\u00A0')
+            savedRange.setStartAfter(img)
+            savedRange.insertNode(space)
+            savedRange.setStartAfter(space)
+            savedRange.setEndAfter(space)
+            selection?.removeAllRanges()
+            selection?.addRange(savedRange)
+            const updatedMathMLTags = [...mathMLTags]
+            updatedMathMLTags.splice(preInsertImgCount, 0, mathML)
+            setMathMLTags(updatedMathMLTags)
+          } else {
+            contentDiv.appendChild(img)
+          }
+        })
+        .catch((error) => {
+          console.error('Could not render MathML to image:', error)
+        })
+        .finally(() => {
+          contentDiv.removeChild(mathDiv)
+          setMathMLToBeEdited('')
+          setEditEquation('')
+          setFoundSrc('')
+        })
+      const existingImgTagsCount = contentDiv.querySelectorAll('img').length
+      let mathTags = [...mathMLTags] // Clone the existing array to avoid direct mutation
+      while (mathTags.length < existingImgTagsCount) {
+        mathTags.push('') // Fill missing tags with empty strings
+      }
+      mathTags.push(mathDiv.innerHTML)
+      setMathMLTags(mathTags)
+      createNewEditor()
+    }
+  }
+
+  return (
+    
+    <div className={`w-screen h-screen ${styles.primaryFont} flex items-center justify-center`}>
+      <Script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"/>
+      <Script type="text/javascript" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"/>
+      <Script src="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.js"/>
+      {send || globalMode == 'history' ? (
+        <div></div>
+      ) : (
+        <>
+          <div className="absolute w-[80%] top-[35.5%] left-[10%] flex justify-center overflow-y-scroll h-[45vh]">
+            {!timerLimit ? (
+              <div className="fixed w-[80%] items-center justify-center flex flex-col"></div>
+            ) : (
+              <>
+                {isResponseReceived && (
+                  <div className="w-full pl-[2%] flex items-center justify-center transform transition-all duration-500 ease-in">
+                    <div
+                      className={`flex items-center justify-center w-[80%] h-[4.75rem] rounded-[1.25rem] bg-gradient-to-b from-counterWarningFrom to-black25 dark:bg-white dark:bg-gradient-to-b dark:from-darkCardBackgroundColor dark:to-darkCardBackgroundColor dark:border-[2px] dark:border-white80`}
+                    >
+                      <div className="flex items-center justify-center w-[99%] h-[4.1rem] rounded-[1.25rem] bg-black bg-opacity-60 dark:bg-white dark:bg-opacity-30 ">
+                        <div className="flex flex-row w-full items-center justify-between">
+                          <div className="flex flex-col ml-[1.5rem]">
+                            <div className={`${theme === 'dark' ? 'text-darkTextColor' : 'text-white'}`}>
+                              Yikes&#33; Your credit quota just hit zero
+                            </div>
+                            <div className={`${theme === 'dark' ? 'text-darkTextColor' : 'text-white'}`}>
+                              Time to refill the tank for more brainpower boosts&#33;
+                            </div>
+                          </div>
+                          <div className="w-[22%] flex items-center justify-around">
+                            <div
+                              className={`w-[7rem] h-[2.5rem] flex items-center justify-center rounded-[1.25rem] ${theme === 'dark' ? 'text-darkTextColor' : 'text-white'
+                                } font-semibold ${theme === 'dark' ? 'bg-white bg-opacity-30 border-[2px] border-white' : 'bg-black'
+                                } bg-opacity-30 hover:cursor-pointer transform transition-all duration-300 ease-in hover:scale[1.2]`}
+                            >
+                              Recharge
+                            </div>
+                            <img
+                              src={`${theme === 'dark'
+                                ? '/assets/icons/light/modalCloseIconLight.svg'
+                                : '/assets/icons/dark-icons/modalCloseIcon.svg'
+                                }`}
+                              alt="Close icon"
+                              className="w-[12.5%] transform transition-all duration-300 hover:scale-[1.2] ml-[-18%] hover:cursor-pointer"
+                              onClick={() => {
+                                setUsedTime(0)
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </>
+      )}
+      {send && (
+        <>
+          <div className={`${clicked ? 'absolute left-[10%]' : 'flex items-center justify-center'}`}>
+            <div
+              id={'containerRef'}
+              ref={containerRef}
+              className={`select-none ${animationContainer
+                ? `fixed ${clicked ? 'minChatWidth' : 'maxChatWidth'} max-h-[75%] top-[5%] overflow-y-auto ${styles.scroll
+                } ${styles.animationContainerText} ${openFeedback || responseImageModal ? `opacity-[0.5]` : `opacity-1`
+                } `
+                : `fixed max-h-[75%] top-[5%] overflow-y-auto ${styles.scroll} ${openFeedback || responseImageModal ? `opacity-[0.5]` : `opacity-1`
+                } `
+                }
+              
+              `}
+              style={{
+                maskImage: 'linear-gradient(to bottom, rgba(255, 255, 255, 1) 95%, rgba(255, 255, 255, 0) 100%)',
+                WebkitMaskImage: 'linear-gradient(to bottom, rgba(255, 255, 255, 1) 95%, rgba(255, 255, 255, 0) 100%)',
+              }}
+            >
+              {chatDetails.map((item, index) => (
+                <div
+                  key={item.id}
+                  id={`newData-${index}`}
+                  className={`overflow-x-hidden
+                  ${item._id == activeChatId ? `opacity-1 ` : `opacity-[0.4] ${styles.scaleDown}`} 
+                  ${animationContainer
+                      ? `flex flex-col items-center overflow-y-auto space-y-[0.8%] transition-all ease-out duration-1500 ${styles.animationContainerText}`
+                      : `flex flex-col items-center overflow-y-auto space-y-[0.8%] transition-all ease-out duration-1500`
+                    } `}
+                >
+                  {item.id == index && (
+                    <>
+                      {item.questionImage && (
+                        <div className="w-[80%] flex items-center pb-[1rem] pl-[2%]" id="requestImage">
+                          <img
+                            src={
+                              typeof item.questionImage === 'string'
+                                ? item.questionImage
+                                : URL.createObjectURL(item.questionImage)
+                            }
+                            alt="Question Image"
+                            className="w-[50%]"
+                          />
+                        </div>
+                      )}
+                      {item.question.length > 0 && (
+                        <div
+                          id={`question-${index}`}
+                          ref={questionRef}
+                          className={`overflow-y-scroll rounded-[1.25rem] inline bg-black40 dark:bg-white30 dark:border-[2px] dark:border-white80 w-[80%] items-center dark:text-cardInnerText text-baseColor text-[24px] font-normal leading-[2.125rem] px-[2.5%] py-[1.5%]`}
+                          dangerouslySetInnerHTML={{ __html: item.question }}
+                        ></div>
+                      )}
+                      <div
+                        ref={containerRefernce}
+                        className={`pb-[2%] pl-[2%] text-[24px] w-[80%] flex flex-col text-white dark:text-darkTextColor font-normal leading-[2.125rem] space-y-[3%] ${styles.animationAnswer}`}
+                      >
+                        <span
+                          id={`split-${item.id}`}
+                          className={`${styles.clipPath}`}
+                          dangerouslySetInnerHTML={{ __html: item.answer }}
+                        ></span>
+                      </div>
+                      {item.added && item.imageUrl != '' && item.imageUrl != 'NA' && (
+                        <>
+                          <div
+                            className={`w-[80%] pl-[2%]`}
+                            onClick={() => {
+                              setResponseImageModal(!responseImageModal)
+                              setModalImageResponse(item.imageUrl)
+                            }}
+                          >
+                            <img
+                              src={item.imageUrl}
+                              className="rounded-[0.75rem] cursor-pointer modalCardBoxShadow mb-[3%] bg-white"
+                              draggable="false"
+                            />
+                          </div>
+                          {item.description != '' && (
+                            <div className="w-[80%] pl-[2%] pr-[2%] flex flex-wrap items-center  break-all">
+                              <div
+                                className={`pb-[2%] text-[16px] flex flex-col text-white dark:text-darkTextColor font-normal leading-[2.125rem] space-y-[3%]`}
+                              >
+                                {item.description}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      {item.added && item.modelLink != '' && (
+                        <>
+                          <div className={`w-[80%] `}>
+                            <div className="sketchfab-embed-wrapper mb-[2.5%] mt-[2.5%]">
+                              <iframe
+                                allow="autoplay; fullscreen; xr-spatial-tracking"
+                                xr-spatial-tracking
+                                execution-while-out-of-viewport
+                                execution-while-not-rendered
+                                web-share
+                                src={item.modelLink}
+                              />
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      {item.added && item.embededLink && item.embededLink != '' && (
+                        <div className={`w-[80%] `}>
+                          <iframe
+                            className="w-full h-[67vh] pl-[2%]"
+                            src={item.embededLink}
+                            loading="lazy"
+                            allow="web-share; clipboard-write"
+                          ></iframe>
+                        </div>
+                      )}
+                      {item.added && (
+                        <>
+                          <div className={`flex flex-row w-[80%] mb-[3%] pl-[2%]`} id={`feedback-${id}`}>
+                            <div className={`flex flex-row w-[80%] ${index == 0 ? '' : ''} space-x-[2.5%] pb-[5%]`}>
+                              <div>
+                                <img
+                                  src={` ${(iconSelectedLike && item.id === currentChatId) || item.liked === true
+                                    ? `/assets/icons/like-selected.png`
+                                    : `${theme === 'dark'
+                                      ? `/assets/icons/light/thumbsUpLight.svg`
+                                      : `/assets/icons/like.png`
+                                    }`
+                                    }  `}
+                                  className="w-[1.5rem] h-[1.5rem] cursor-pointer select-none"
+                                  onClick={() => {
+                                    setRatingMessageId(item._id)
+                                    ratingChatId = item._id
+                                    setRatingSelected(true)
+                                    setIsLiked(true)
+                                    setChatDetails(
+                                      chatDetails.map((message) =>
+                                        message.id === item.id ? { ...message, liked: true, disliked: false } : message
+                                      )
+                                    )
+                                    setCurrentChatId(item.id)
+                                    setIconSelectedLike(true)
+                                    setIconSelectedDislike(false)
+                                    setLikePlaceholderCheck(true)
+                                  }}
+                                  draggable="false"
+                                />
+                              </div>
+                              <div>
+                                <img
+                                  src={` ${(iconSelectedDislike && item.id === currentChatId) || item.disliked === true
+                                    ? `/assets/icons/dislike-selected.png`
+                                    : `${theme === 'dark'
+                                      ? `/assets/icons/light/thumbsDownLight.svg`
+                                      : `/assets/icons/dislike.png`
+                                    }`
+                                    }  `}
+                                  className="w-[1.5rem] h-[1.5rem]  cursor-pointer select-none"
+                                  onClick={() => {
+                                    setRatingMessageId(item._id)
+                                    ratingChatId = item._id
+                                    setRatingSelected(false)
+                                    setIsLiked(false)
+                                    setChatDetails(
+                                      chatDetails.map((message) =>
+                                        message.id === item.id ? { ...message, liked: false, disliked: true } : message
+                                      )
+                                    )
+                                    setCurrentChatId(item.id)
+                                    setIconSelectedDislike(true)
+                                    setIconSelectedLike(false)
+                                    setLikePlaceholderCheck(false)
+                                  }}
+                                  draggable="false"
+                                />
+                              </div>
+                              {/* {isReading && audioId == item.id ? (
+                                <button
+                                  onClick={() => {
+                                    cancelTls.current()
+                                    setAudioId(item.id)
+                                  }}
+                                  className="w-[1.5rem] h-[1.5rem] cursor-pointer"
+                                >
+                                  <img
+                                    key={item.id}
+                                    src={
+                                      theme == 'light'
+                                        ? '/assets/icons/dark-icons/updated-pauseIcon-dark.svg'
+                                        : '/assets/icons/light/pauseIconLight.svg'
+                                    }
+                                    draggable="false"
+                                    className="select-none"
+                                  />
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    textToSpeech.current(item.textAnswer)
+                                    setAudioId(item.id)
+                                  }}
+                                  className="w-[1.5rem] h-[1.5rem] cursor-pointer"
+                                >
+                                  <img
+                                    key={item.id}
+                                    src={
+                                      theme == 'light'
+                                        ? '/assets/icons/dark-icons/updated-speakerIcon-dark.svg'
+                                        : '/assets/icons/light/speakerIconLight.svg'
+                                    }
+                                    draggable="false"
+                                    className="select-none"
+                                  />
+                                </button>
+                              )} */}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+              {
+                <div className="pl-[2%] flex flex-col items-center">
+                  {!timerLimit ? (
+                    <>
+                      {requestImage && !isResponseReceived && (
+                        <div className="w-[80%] flex items-center pb-[1rem] pl-[2%]">
+                          <img src={`${URL.createObjectURL(requestImage)}`} alt="Response Image" className="w-[50%]" />
+                        </div>
+                      )}
+                      {animate && inputText.length > 0 && (
+                        <div
+                          ref={inputTexRef}
+                          className={`fadeInAnimation w-[80%] inline text-[1.5rem] leading-[2.125rem] ${`px-[2.5%] py-[1.5%] rounded-[1.25rem] ${theme === 'dark'
+                            ? 'text-cardInnerText bg-white30 border-[2px] border-white80'
+                            : 'text-baseColor bg-black40'
+                            }`}`}
+                          dangerouslySetInnerHTML={{ __html: animate ? inputText : '' }}
+                        ></div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {isResponseReceived && (
+                        <div className="w-full pl-[2%] flex items-center justify-center transform transition-all duration-500 ease-in">
+                          <div
+                            className={`flex items-center justify-center w-[80%] h-[4.75rem] rounded-[1.25rem] bg-gradient-to-b from-counterWarningFrom to-black25 dark:bg-white dark:bg-gradient-to-b dark:from-darkCardBackgroundColor dark:to-darkCardBackgroundColor dark:border-[2px] dark:border-white80`}
+                          >
+                            <div className="flex items-center justify-center w-[99%] h-[4.1rem] rounded-[1.25rem] bg-black bg-opacity-60 dark:bg-white dark:bg-opacity-30 ">
+                              <div className="flex flex-row w-full items-center justify-between">
+                                <div className="flex flex-col ml-[1.5rem]">
+                                  <div className={`${theme === 'dark' ? 'text-darkTextColor' : 'text-white'}`}>
+                                    Yikes&#33; Your credit quota just hit zero
+                                  </div>
+                                  <div className={`${theme === 'dark' ? 'text-darkTextColor' : 'text-white'}`}>
+                                    Time to refill the tank for more brainpower boosts&#33;
+                                  </div>
+                                </div>
+                                <div className="w-[22%] flex items-center justify-around">
+                                  <div
+                                    className={`w-[7rem] h-[2.5rem] flex items-center justify-center rounded-[1.25rem] ${theme === 'dark' ? 'text-darkTextColor' : 'text-white'
+                                      } font-semibold ${theme === 'dark' ? 'bg-white bg-opacity-30 border-[2px] border-white' : 'bg-black'
+                                      } bg-opacity-30 hover:cursor-pointer transform transition-all duration-300 ease-in hover:scale[1.2]`}
+                                  >
+                                    Recharge
+                                  </div>
+                                  <img
+                                    src={`${theme === 'dark'
+                                      ? '/assets/icons/light/modalCloseIconLight.svg'
+                                      : '/assets/icons/dark-icons/modalCloseIcon.svg'
+                                      }`}
+                                    alt="Close icon"
+                                    className="w-[12.5%] transform transition-all duration-300 hover:scale-[1.2] ml-[-18%] hover:cursor-pointer"
+                                    onClick={() => {
+                                      setUsedTime(0)
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  <div>
+                    {/* {!isResponseReceived && animate && (
+                      <div className='fadeInAnimation w-[80%] flex bg-transparent text-[1.5rem] leading-[2.125rem] text-white font-light'>{inputText}</div>
+                    )} */}
+                    {animate && (
+                      <div className="absolute w-[10%] left-[10%] z-999 mt-[2rem]">
+                        <div className="" ref={containerRef1} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="w-[80%] h-[35vh] "></div>
+                </div>
+              }
+            </div>
+          </div>
+        </>
+      )}
+      {/* Explore welcome text */}
+      {exploreWelcomeText && welcomeText && (
+        <div
+          id="welcomeTextId"
+          className="fixed top-[18%] left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[64%] text-center flex flex-col gap-[2rem]"
+          style={{ opacity: 0 }}
+        >
+          <div className={`text-[2.25rem] ${theme === 'dark' ? 'text-cardInnerText' : 'text-baseColor'} font-bold`}>
+            {welcomeText.subject}
+          </div>
+          <div
+            className={`text-[1.25rem] ${theme === 'dark' ? 'text-darkTextColor' : 'text-white'
+              } font-normal leading-normal`}
+          >
+            {welcomeText.welcomeText}
+          </div>
+        </div>
+      )}
+      <div
+        className={`h-[100vh] fixed top-0 z-[999] right-0 w-[25%] bg-gradient-to-b from-sidebar to-bottom dark:bg-gradient-to-b dark:from-darkCardBackgroundColor dark:to-darkCardBackgroundColor dark:border-darkBorderColor dark:border-2 p-4 pl-[4%] cursor-pointer transition-transform ease-in duration-700 transform ${clicked ? 'historyAnimationOpen ' : ' transform-gpu translate-x-[100%]'
+          } `}
+        ref={historyContainerRef}
+      >
+        <History
+          onClose={handleHistory}
+          searchTermTitle={handleSearchTermText}
+          onHistoryItemClick={handleHistoryItemClick}
+          clearChatDetails={clearChatDetails}
+        />
+      </div>
+      {isOverflowing && (
+        <div
+          className={` fixed w-[3.313rem] h-[3.313rem] bottom-[20%] ${clicked ? 'right-[27.5%] transition-all duration-700 ease' : 'right-[10%] transition-all duration-1000 ease'
+            } rounded-full flex items-center justify-center ${theme === 'dark'
+              ? 'bg-gradient-to-b from-darkCardBackgroundColor to-darkCardBackgroundColor border-white80 border-[2px] uploadBoxShadow'
+              : 'bg-gradient-to-b from-modalCardBottom to-dropDownTo'
+            } cursor-pointer`}
+          onClick={() => {
+            scrollToBottom()
+          }}
+        >
+          <img
+            src={'/assets/icons/dark-icons/dark-scrollToBottom.svg'}
+            alt={'arrow down'}
+            className="w-[1rem] select-none"
+            draggable="false"
+          />
+        </div>
+      )}
+      {!isAtTop && (
+        <div
+          className={` fixed w-[3.313rem] h-[3.313rem] top-[20%] ${clicked ? 'right-[27.5%] transition-all duration-700 ease' : 'right-[10%] transition-all duration-1000 ease'
+            } rounded-full flex items-center justify-center ${theme === 'dark'
+              ? 'bg-gradient-to-b from-darkCardBackgroundColor to-darkCardBackgroundColor border-white80 border-[2px] scrollUpBoxShadow'
+              : 'bg-gradient-to-b from-modalCardBottom to-dropDownTo'
+            } cursor-pointer`}
+          onClick={() => {
+            scrollToTop()
+          }}
+        >
+          <img
+            src={'/assets/icons/dark-icons/dark-scrollToBottom.svg'}
+            alt={'arrow down'}
+            className="w-[1rem] rotate-180 select-none"
+            draggable="false"
+          />
+        </div>
+      )}
+      {openFeedback && (
+        <>
+          <div className="absolute inset-0 bg-gray-900 bg-opacity-50 dark:bg-feedBackFormLight dark:bg-opacity-[0.5] z-[1001]"></div>
+          <div className="w-[55%] fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[1002]">
+            {' '}
+            <ModalCard
+              ratingSelection={isRatingSelected}
+              onClose={() => {
+                setFeedback(false), setRatingMessageId('')
+              }}
+              onSend={handleSendRating}
+            />{' '}
+          </div>
+        </>
+      )}
+      {/* {mathKeyboardModal && ( */}
+        <div
+          className={mathKeyboardModal && editorInitialized ? `fixed keyboardTransition left-1/2 transform -translate-x-1/2 z-[600] w-[62%] p-[2rem] rounded-t-[1.25rem] rounded-b-[0] transition keyboardBaseBg border-[1px] ${theme === 'dark' ? 'border-white inputContainerBoxShadowLight' : 'border-cardInnerText'
+            }`:'fixed bottom-[-100%] left-1/2'}
+        >
+          {/* fadeInAnimation contentEditable="true"*/}
+          <div ref={editorContainerRef} id="editorContainer" >
+
+               <Mathfield
+                    value={editor}
+                    onChange={setEditor}
+                    style={{
+                      width: '100%',
+                      padding: '8px',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(0, 0, 0, .3)',
+                      boxShadow: '0 0 8px rgba(0, 0, 0, .2)'
+                    }}
+                  />
+            
+
+          </div>
+          <div className="flex flex-row-reverse w-full items-center justify-between mt-[0.5rem] py-[0.5rem]">
+            {/* <button
+              className="py-[0.25rem] px-[1.25rem] bg-[#FF0000] rounded-[0.5rem] text-white text-[1rem] font-semibold scaleDownTransition"
+              onClick={() => {
+                setMathKeyboardModal(false)
+                setMathMLToBeEdited('')
+                setFoundSrc('')
+              }}
+            >
+              Close
+            </button> */}
+            <img
+              src={`${theme === 'dark' ? '/assets/icons/feedbackModalCloseLightGreen.svg' : '/assets/icons/feedbackModalClose.svg'}`}
+              alt=''
+              className='absolute top-[1rem] right-[1rem] easeTransition cursor-pointer'
+              onClick={() => {
+                setMathKeyboardModal(false)
+                setMathMLToBeEdited('')
+                setFoundSrc('')
+                setEditEquation('')
+                createNewEditor()
+              }}
+            />
+            <button
+              className="py-[0.25rem] px-[1.25rem] bg-[#41A007] rounded-[0.5rem] text-white text-[1rem] font-semibold scaleDownTransition"
+              onClick={() => {
+                renderMathMLToImage(editor, 'editor')
+                setMathKeyboardModal(false)
+              }}
+            >
+              Insert
+            </button>
+          </div>
+        </div>
+      {/* )} */}
+      {/* {drawEquation && ( */}
+        <div
+          className={drawEquation ? `fixed keyboardTransition left-1/2 transform -translate-x-1/2 z-[600] w-[62%] p-[2rem] rounded-t-[1.25rem] rounded-b-[0] transition keyboardBaseBg border-[1px] ${theme === 'dark' ? 'border-white inputContainerBoxShadowLight' : 'border-cardInnerText'
+            }` : 'fixed bottom-[-100%] left-1/2'}
+        >
+          <div ref={handContainerRef} id="handContainer" contentEditable="true"></div>
+          <div className="flex flex-row-reverse w-full items-center justify-between mt-[0.5rem] py-[0.5rem]">
+            {/* <button
+              className="py-[0.25rem] px-[1.25rem] bg-[#FF0000] rounded-[0.5rem] text-white text-[1rem] font-semibold scaleDownTransition"
+              onClick={() => {
+                setDrawEquation(false)
+                setMathMLToBeEdited('')
+                setFoundSrc('')
+              }}
+            >
+              Close
+            </button> */}
+            <img
+              src={`${theme === 'dark' ? '/assets/icons/feedbackModalCloseLightGreen.svg' : '/assets/icons/feedbackModalClose.svg'}`}
+              alt=''
+              className='absolute top-[1rem] right-[1rem] easeTransition cursor-pointer'
+              onClick={() => {
+                setDrawEquation(false)
+                setMathMLToBeEdited('')
+                setFoundSrc('')
+              }}
+            />
+            <button
+              className={isEquationReady ? `py-[0.25rem] px-[1.25rem] bg-[#41A007] rounded-[0.5rem] text-white text-[1rem] font-semibold scaleDownTransition` : `py-[0.25rem] px-[1.25rem] bg-[#41A007] rounded-[0.5rem] text-white text-[1rem] font-semibold pointer-events-none opacity-50`}
+              onClick={() => {
+                if(isEquationReady){
+                  renderMathMLToImage(drawEditor, 'draw')
+                  setDrawEquation(false)
+                }
+              }}
+            >
+              Insert
+            </button>
+          </div>
+        </div>
+      {/* )} */}
+      {responseImageModal && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.4 }}
+          className="fixed inset-0 w-full h-screen flex items-center justify-center bg-black bg-opacity-50"
+          style={{ zIndex: '999' }}
+        >
+          <motion.div
+            ref={responseContainerRef}
+            initial={{ y: -50, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ duration: 0.4, type: 'tween' }}
+            className="relative max-w-[500px] max-h-[500px] overflow-hidden rounded-[0.5rem]"
+          >
+            <img src={modalImageResponse} className="responseImageDimension select-none" />
+            <img
+              src={'/assets/icons/feedbackModalClose.svg'}
+              alt={''}
+              className={`w-[25px] absolute top-[1rem] right-[1rem] cursor-pointer transform transition-transform duration-300 ease-in-out hover:scale-[1.2] rounded-[50%] ${theme
+                ? 'bg-gradient-to-b from-historyIconTopColor to-historyIconBottomColor'
+                : 'bg-gradient-b from-innerCardBottom to-historyIconTopColor'
+                } select-none`}
+              draggable="false"
+              onClick={() => setResponseImageModal(!responseImageModal)}
+            />
+          </motion.div>
+        </motion.div>
+      )}
+      {timerLimit && usedTime > 100 && (
+        <div className="fixed bottom-[5%] z-[11] w-[12%] h-[12vh] ml-[1%] bg-transparent" />
+      )}
+    </div>
+  )
+}----------------------------------------------
+css
+--------------
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+  --text-xl: 60px;
+  --text-large: 40px;
+  --text-medium: 30px;
+  --text-regular: 21.2px;
+  --text-base: 14px;
+  --text-tiny: 10px;
+  --primary-font: 'Inter';
+  --secondary-font: 'PT Serif';
+  --background-image: '/assets/images/background.svg';
+  --white-color: #fff;
+  --black-color: #000;
+  --base-color: #69bf0d;
+  --timerBackground-color: #142205;
+  --chat-history-color: #406e0f;
+  --progressBarGreen: #527330;
+  --progressBarGreen: #527330;
+  --red-bg: #c30010;
+  --toggle-active-border-color: #41a007;
+  --darkTabBorderColor: #393f65;
+  --startBoxShadow: #3aaef84d;
+  --navBarGradient-from: #218102;
+  --navIcon-0-boxShadow: #3aaef84d;
+  --navIcon-0-boxShadow-light: #ffffff99;
+  --inputMode-pulse-border: #33ff00;
+  --pulse-border: #47a608;
+  --inputMode-boxShadow: #123d65;
+  --navicon-1-dropshadow-1: #aafb53;
+  --navicon-2-dropshadow-1: #da5949;
+  --navicon-3-dropshadow-2: #6ebeeb;
+  --navicon-4-dropshadow: #ffba00;
+  --navBackground: #6ebeeb4d;
+  --navBackground-shadow: #6ebeeb2e;
+  --navBackground-outerShadow: #55555526;
+  --bannerCard-boxShadow: #2c4213;
+  --card-boxShadow-light: #c9d9e4cc;
+  --micIssueNotification-boxShadow: #ffffff2e;
+  --warningColor: #ff000080;
+  --option-boxShadow: #253416;
+  --optionContainer-color: #41a0071a;
+  --optionContainer-light: #123d651a;
+  --navBarGradient-from: #218102;
+  --navIcon-0-boxShadow: #3aaef84d;
+  --navIcon-0-boxShadow-light: #ffffff99;
+  --inputMode-pulse-border: #33ff00;
+  --pulse-border: #47a608;
+  --inputMode-boxShadow: #123d65;
+  --navicon-1-dropshadow-1: #aafb53;
+  --navicon-2-dropshadow-1: #da5949;
+  --navicon-3-dropshadow-2: #6ebeeb;
+  --navicon-4-dropshadow: #ffba00;
+  --navBackground: #6ebeeb4d;
+  --navBackground-shadow: #6ebeeb2e;
+  --navBackground-outerShadow: #55555526;
+  --bannerCard-boxShadow: #2c4213;
+  --card-boxShadow-light: #c9d9e4cc;
+  --micIssueNotification-boxShadow: #ffffff2e;
+  --warningColor: #ff000080;
+  --option-boxShadow: #253416;
+  --optionContainer-color: #41a0071a;
+  --optionContainer-light: #123d651a;
+  --assessmentTextArea: #69bf0d80;
+  --black-50: #00000080;
+  --assessment-message-boxShadow: rgba(85, 85, 85, 0.15);
+  --feedback-action-button-boxShadow: rgba(85, 85, 85, 0.15);
+  --white-10: #ffffff4d;
+  --option-selected-light: #097f00;
+  --option-selection-background-light: rgba(255, 255, 255, 0.3);
+  color-scheme: light dark;
+
+  --toolbar-bg: linear-gradient(0deg, #000 -18.5%, #406e0f 225.92%);
+  --keyboard-button-selected-border: #41a007;
+  --keyboard-text-color: #ffffff;
+  --scrollbar-thumb: #41A007;
+}
+[data-theme='dark'] {
+  --toolbar-bg: linear-gradient(211deg, #EBF2F9 19.14%, #C6D7EB 154.68%);
+  --keyboard-button-selected-border: #00000080;
+  --keyboard-text-color: #393f65;
+  --scrollbar-thumb: #393F65;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --foreground-rgb: 0, 0, 0;
+    --background-color: 255, 255, 255;
+    --background-start-rgb: 255, 255, 255;
+    --background-end-rgb: 255, 255, 255;
+    --background-image: '/assets/images/dark_bg.svg';
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background-color: 0, 0, 0;
+    --background-image: '/assets/images/dark_bg.svg';
+  }
+}
+
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.main-section {
+  background-repeat: no-repeat;
+  width: 100%;
+  height: 100vh;
+  background-size: cover;
+  background-position: center;
+}
+
+.card1 {
+  animation-delay: 1.5s;
+  animation-duration: 1s;
+  animation: slideInFromTop 1s ease;
+}
+
+.card2 {
+  animation-delay: 1.5s;
+  animation-duration: 1s;
+  animation: slideInFromBottom 1s ease;
+}
+
+.card3 {
+  animation-delay: 1.5s;
+  animation-duration: 1s;
+  animation: slideInFromTop 1s ease;
+}
+
+.card4 {
+  animation-delay: 1.5s;
+  animation-duration: 1s;
+  animation: slideInFromRight 1s ease;
+}
+
+.card5 {
+  animation-delay: 1.5s;
+  animation-duration: 1s;
+  animation: slideInFromBottom 1s ease;
+}
+
+@keyframes slideInFromLeft {
+  from {
+    transform: translateX(-100%);
+    transform: rotate(30deg);
+  }
+
+  to {
+    transform: translateX(0);
+    transform: rotate(0deg);
+  }
+}
+
+.translate2 {
+  transition: transform 0.5s ease-in-out;
+}
+
+.translate3 {
+  transition: transform 0.5s ease-in-out;
+}
+
+.translate4 {
+  transition: transform 0.5s ease-in-out;
+}
+
+@keyframes slideInFromTop {
+  from {
+    transform: translateY(-100%) rotate(30deg);
+  }
+
+  to {
+    transform: translateY(0) rotate(0deg);
+  }
+}
+
+@keyframes slideInFromBottom {
+  from {
+    transform: translateY(100%) rotate(30deg);
+  }
+
+  to {
+    transform: translateY(0) rotate(0deg);
+  }
+}
+
+@keyframes slideInFromRight {
+  from {
+    transform: translateX(100%) rotate(-30deg);
+  }
+
+  to {
+    transform: translateX(0) rotate(0deg);
+  }
+}
+
+.historySearchAnimation {
+  transition: 2s;
+  animation: slideLeft 1s ease;
+  animation-duration: 1s;
+}
+
+@keyframes slideLeft {
+  from {
+    transform: translateX(90%);
+  }
+
+  to {
+    transform: translateX(0px);
+  }
+}
+
+.historyCloseSearchAnimation {
+  animation: slideLeftIn 2s ease;
+  animation-duration: 2s;
+}
+
+@keyframes slideLeftIn {
+  from {
+    transform: translateX(-200px);
+  }
+
+  to {
+    transform: translateX(0%);
+  }
+}
+
+.inputHistory {
+  display: flex;
+  animation: disableInput 1.5s ease;
+  opacity: 1;
+  animation-duration: 1s;
+}
+
+@keyframes disableInput {
+  0% {
+    width: 100%;
+  }
+
+  50% {
+    width: 50%;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.historyTextDisplay {
+  display: flex;
+  animation-duration: 3s;
+  animation: showText 2s ease;
+  opacity: 1;
+}
+
+@keyframes showText {
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+.historyHeading {
+  animation: positionFixing 2s ease;
+  animation-duration: 2s;
+  justify-content: space-between;
+}
+
+@keyframes positionFixing {
+  0% {
+    justify-content: flex-start;
+  }
+
+  100% {
+    justify-content: space-between;
+  }
+}
+
+.slideInHr {
+  animation: slidingIn 1s ease;
+  animation-duration: 1s;
+}
+
+@keyframes slidingIn {
+  from {
+    transform: translateX(90%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+.slideOutHr {
+  animation: slidingOut 2s ease;
+  animation-duration: 2s;
+  transform: translateX(80%);
+  opacity: 0;
+}
+
+@keyframes slidingOut {
+  from {
+    transform: translateX(0px);
+    opacity: 1;
+  }
+
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.microphoneContainer {
+  animation: slideUp 700ms ease;
+  animation-duration: 700ms;
+  bottom: -50%;
+}
+
+@keyframes slideUp {
+  0% {
+    transform: translateY(100%);
+  }
+
+  100% {
+    transform: translateY(0%);
+  }
+}
+
+.microphoneContainerInvisible {
+  animation: slideDOWN 700ms ease;
+  animation-duration: 700ms;
+  transform: translateY(120%);
+}
+
+@keyframes slideDOWN {
+  0% {
+    transform: translateY(12%);
+  }
+
+  100% {
+    transform: translateY(120%);
+  }
+}
+
+.icon0 {
+  background: linear-gradient(32deg, var(--navBarGradient-from) 36.9%, var(--toggle-active-border-color) 74.42%);
+  filter: drop-shadow(0px 6px 21px var(--navIcon-0-boxShadow));
+  border-radius: 50%;
+  animation: opacity 1s ease-in;
+}
+
+.lightIcon0 {
+  background: linear-gradient(35deg, var(--toggle-active-border-color) 5.29%, #76d914 81.27%, #80e416 95.59%);
+  filter: drop-shadow(-6px -6px 16px var(--navIcon-0-boxShadow-light));
+  border-radius: 50%;
+  animation: opacity 1s ease-in;
+}
+
+@keyframes opacity {
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+.icon1 {
+  border-radius: 50%;
+  background: linear-gradient(32deg, var(--navBarGradient-from) 36.9%, var(--toggle-active-border-color) 74.42%);
+  filter: drop-shadow(0px 6px 21px var(--navIcon-0-boxShadow));
+  animation: opacity 1s ease-in;
+}
+
+.lightIcon1 {
+  background: linear-gradient(35deg, var(--toggle-active-border-color) 5.29%, #76d914 81.27%, #80e416 95.59%);
+  filter: drop-shadow(-6px -6px 16px var(--navIcon-0-boxShadow-light));
+  border-radius: 50%;
+  animation: opacity 1s ease-in;
+}
+
+.micDropDownIn {
+  animation: slidefromMic 1s ease;
+  animation-duration: 1s;
+  opacity: 1;
+  transform: translateX(-80%);
+}
+
+@keyframes slidefromMic {
+  0% {
+    transform: translateX(0%);
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateX(-80%);
+    opacity: 1;
+  }
+}
+
+.micDropDownOut {
+  animation: slideIntoMic 1s ease;
+  animation-duration: 1s;
+  opacity: 0;
+  transform: translateX(0%);
+}
+
+@keyframes slideIntoMic {
+  0% {
+    transform: translateX(-80%);
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
+
+  100% {
+    transform: translateX(0%);
+    opacity: 0;
+  }
+}
+
+.pulse {
+  border: 2px solid var(--inputMode-pulse-border);
+  border-radius: 100%;
+}
+
+.pulse:before,
+.pulse:after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border: 2.25px solid var(--pulse-border);
+  border-radius: 100%;
+  animation: animate 1s linear infinite;
+}
+
+.pulse:after {
+  animation-delay: 0.5s;
+}
+
+@keyframes animate {
+  0% {
+    transform: scale(1.2);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1.7);
+    opacity: 1;
+  }
+}
+
+.dropShadowIcon1 {
+  filter: drop-shadow(3px 14px 16px var(--navicon-1-dropshadow-1)) drop-shadow(4px 10px 13px var(--white-color));
+  backdrop-filter: blur(16px);
+}
+
+.dropShadowIcon2 {
+  filter: drop-shadow(4px 7px 18px var(--navicon-2-dropshadow-1)) drop-shadow(5px 9px 17px var(--white-color));
+  backdrop-filter: blur(16px);
+}
+
+.dropShadowIcon3 {
+  filter: drop-shadow(2px 9px 12px var(--white-color)) drop-shadow(0px 10px 12px var(--navicon-3-dropshadow-2));
+  backdrop-filter: blur(16px);
+}
+
+.dropShadowIcon4 {
+  filter: drop-shadow(6px 16px 40px var(--navicon-4-dropshadow)) drop-shadow(-3px -2px 23px var(--navicon-4-dropshadow));
+  backdrop-filter: blur(16px);
+}
+
+.historyIconDropShadow {
+  filter: drop-shadow(6px 16px 40px var(--navicon-3-dropshadow-2)) drop-shadow(-6px -6px 16px var(--white-color));
+}
+
+.cardBorder {
+  border-radius: 0rem 0rem 0.75rem 0.75rem;
+  border: 2px solid var(--white-color);
+}
+
+.navbarBackground {
+  fill: var(--navBackground);
+  stroke-width: 2px;
+  stroke: var(--white-color);
+  /* box-shadow: -8px -6px 80px 0px var(--navBackground-shadow) inset; */
+  filter: drop-shadow(8px 40px 96px var(--navBackground-shadow));
+}
+
+.navbarShadow {
+  filter: drop-shadow(0px -4px 10px var(--navBackground-outerShadow));
+}
+
+.inputModeBoxShadow {
+  filter: drop-shadow(5px 93px 101px var(--inputMode-boxShadow));
+}
+
+.historyAnimationOpen {
+  transform: translateX(0%);
+  animation: historySlideIn 1s ease;
+  animation-duration: 1s;
+  opacity: 1;
+}
+
+@keyframes historySlideIn {
+  0% {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+
+  40% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(0%);
+  }
+}
+
+.settingsContainer {
+  animation: container 1s ease-in;
+}
+
+@keyframes container {
+  0% {
+    opacity: 0;
+  }
+
+  50% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+.settingsContainerClose {
+  animation: containerClose 1s ease-out;
+}
+
+@keyframes containerClose {
+  0% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.7;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.modeSwitcherZIndex {
+  z-index: -1;
+}
+
+::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hidden {
+  scrollbar-width: thin;
+}
+
+.scrollbar-hidden::-webkit-scrollbar-thumb {
+  display: none;
+}
+
+.stackContainer {
+  position: relative;
+}
+
+.image1,
+.image2 {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.image2 {
+  z-index: 1;
+}
+
+.video-container {
+  position: relative;
+  width: 80%;
+  padding-bottom: 35%;
+}
+
+.video-container iframe {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.cardBoxShadowDark {
+  box-shadow: 0px 0px 0px var(--bannerCard-boxShadow);
+  /* box-shadow: calc( 0 * 2px ) calc( 0 * 2px ) 20px fade(black, 50%); */
+}
+
+.cardBoxShadowLight {
+  box-shadow: 0px 0px 0px var(--card-boxShadow-light);
+}
+
+.cardBoxShadowDark:hover {
+  box-shadow: 0px 4px 12px 0px rgba(0, 0, 0, 0.65), -10px 10px 10px 0px rgba(92, 159, 19, 0.2);
+}
+
+.cardBoxShadowLight:hover {
+  box-shadow: -18px 18px 20px var(--card-boxShadow-light);
+  /* box-shadow: calc( 0 * 2px ) calc( 0 * 2px ) 20px fade(black, 50%); */
+}
+
+.minChatWidth {
+  width: 65%;
+  animation: minProps 1s ease-out;
+}
+
+@keyframes minProps {
+  0% {
+    width: 80%;
+  }
+
+  100% {
+    width: 65%;
+  }
+}
+
+.maxChatWidth {
+  width: 80%;
+}
+
+@keyframes maxProps {
+  0% {
+    width: 70%;
+  }
+
+  100% {
+    width: 80%;
+  }
+}
+
+.card {
+  transform-style: preserve-3d;
+}
+
+.cardtext {
+  transition: 0.7s ease;
+  transform: translateZ(0px);
+}
+
+.card:hover .cardtext {
+  transition: 0.3s ease-in;
+  transform: translateZ(25px);
+}
+
+.closeModal {
+  animation: 1s modalCloseOpacity ease;
+}
+
+@keyframes modalCloseOpacity {
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.slick-next {
+  display: none !important;
+}
+
+.slick-prev {
+  display: none !important;
+}
+
+.slick-slide > div {
+  margin: 0 10px;
+  display: flex;
+  align-items: center;
+}
+
+.slick-custom-card {
+  width: 8.64125rem !important;
+}
+
+.videoPlayer {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.focusInnerTab {
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.focusInnerTab:hover {
+  border: 2px solid var(--darkTabBorderColor);
+  transition: all 0.3s ease;
+}
+
+.focusInnerTabDark {
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.focusInnerTabDark:hover {
+  border: 2px solid white;
+  transition: all 0.3s ease;
+}
+
+.bannerBackground {
+  background-image: url('/assets/images/background.svg');
+  width: 100%;
+  height: 130dvh;
+}
+
+.card-spacing {
+  display: flex;
+  justify-content: center;
+}
+
+.focus-header-positioning {
+  position: absolute;
+  top: 5%;
+}
+
+.foucs-footer-positioning {
+  position: absolute;
+  bottom: 5%;
+}
+
+.banner-header {
+  margin-left: 0%;
+}
+
+.banner-cards-positioning {
+  right: 9.5%;
+}
+
+.practice-section-alignment {
+  left: 11.31rem;
+}
+
+.alertBoxShowTransition {
+  animation: alertBoxShowAnimation 0.5s ease-in;
+}
+
+@keyframes alertBoxShowAnimation {
+  0% {
+    transform: translate(100%, -100%);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(100%, 50%);
+    opacity: 1;
+  }
+}
+
+.alertBoxHideTransition {
+  animation: alertBoxHideAnimation 0.5s ease-out;
+}
+
+@keyframes alertBoxHideAnimation {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+}
+
+.carouselHeaderMargin {
+  margin-left: 10px;
+}
+
+.connectionIssueNotification {
+  transform: translate(100%, 50%);
+}
+
+.micIssueNotification {
+  transform: translate(75%, 50%);
+}
+
+.boxShadow {
+  box-shadow: -8px -6px 80px 0px var(--micIssueNotification-boxShadow) inset;
+}
+
+.responseImageDimension {
+  cursor: crosshair;
+  /* max-width: 500px;
+  max-height: 500px;
+  border-radius: 0.5rem; */
+  --x: 50%;
+  --y: 50%;
+  transform: scale(var(--zoom));
+  transform-origin: var(--x) var(--y);
+  clip-path: inset(
+    calc((1 - 1 / var(--zoom)) * (var(--y))) calc((1 - 1 / var(--zoom)) * (100% - var(--x)))
+      calc((1 - 1 / var(--zoom)) * (100% - var(--y))) calc((1 - 1 / var(--zoom)) * (var(--x)))
+  );
+
+  background-color: var(--white-color);
+}
+
+.responseImageDimension:hover {
+  --zoom: 1.5;
+  border-radius: 0.5rem !important;
+}
+
+.focusVideoWidth {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.loginBg {
+  background-image: url('/assets/images/loginBackground.svg');
+}
+
+.inputBackgroundColor {
+  background: linear-gradient(0deg, var(--black-color) -18.5%, var(--progressBarGreen) 225.92%);
+  box-shadow: 0px -4px 10px 0px var(--navBackground-outerShadow);
+}
+
+.inputBackgroundColor_light {
+  background-color: white;
+  opacity: 0.7;
+}
+
+.inputField {
+  padding: 1%;
+  padding-left: 1.25%;
+  /* padding-top: 1.25%; */
+  outline: none;
+  resize: none;
+  color: var(--white-color);
+}
+
+.inputFieldWarning {
+  padding: 1%;
+  padding-left: 1.25%;
+  padding-top: 1.1%;
+  outline: none;
+  resize: none;
+  color: var(--white-color);
+}
+
+.OTPInputField {
+  padding: 1%;
+  text-align: center;
+  outline: none;
+  resize: none;
+  color: var(--white-color);
+}
+
+.loginButton {
+  border-radius: 1rem;
+  background: var(
+    --active_color,
+    linear-gradient(32deg, var(--navBarGradient-from) 36.9%, var(--toggle-active-border-color) 74.42%)
+  );
+  box-shadow: 0px -4px 10px 0px var(--navBackground-outerShadow);
+}
+
+.primaryFont {
+  font-family: var(--primary-font);
+}
+
+.secondaryFont {
+  font-family: var(--secondary-font);
+}
+
+.splashImage {
+  animation: 2.5s splashAnimation linear infinite;
+}
+
+@keyframes splashAnimation {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+
+  100% {
+    transform: translate(-50%, -50%) rotate(-360deg);
+  }
+}
+
+.image_1_positioning {
+  position: fixed;
+  top: 14%;
+  right: 16.5%;
+  z-index: 1;
+}
+
+.image_2_positioning {
+  position: fixed;
+  top: 36%;
+  right: 22%;
+  z-index: 1;
+  width: 25%;
+}
+
+.image_3_positioning {
+  position: fixed;
+  bottom: 7%;
+  right: 3%;
+  z-index: 1;
+}
+
+@keyframes image_1_animation {
+  0% {
+    top: 100%;
+    right: 15%;
+  }
+
+  50% {
+    right: 35%;
+  }
+
+  80% {
+    top: 10%;
+  }
+
+  100% {
+    top: 14%;
+    right: 17%;
+  }
+}
+
+@keyframes image_2_animation {
+  0% {
+    top: 100%;
+    right: -10%;
+  }
+
+  100% {
+    top: 36%;
+    right: 22%;
+  }
+}
+
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.timerCssBackground {
+  fill: none;
+  stroke-width: 4.5px;
+  stroke-linecap: round;
+  stroke-dasharray: 125;
+}
+
+.timerCss {
+  fill: none;
+  stroke-width: 4.5px;
+  stroke-linecap: round;
+  stroke-dasharray: 125;
+}
+
+.warningTransition {
+  animation: 0.5s showWarningTransition ease-in;
+  transform: translateY(1rem);
+}
+
+@keyframes showWarningTransition {
+  0% {
+    transform: translateY(0);
+  }
+
+  100% {
+    transform: translateY(1rem);
+  }
+}
+
+.showBorderWarning {
+  animation: stroke-transition 1s infinite ease;
+}
+
+@keyframes stroke-transition {
+  0% {
+    border: 2px solid var(--warningColor);
+  }
+
+  100% {
+    border: 2px solid var(--warningColor);
+  }
+}
+
+.authButton {
+  transition: 0.5s ease;
+}
+
+.authButton:hover {
+  transform: scale(110%);
+  cursor: pointer;
+  transition: 0.5s ease;
+}
+
+.warningTransition {
+  animation: 0.5s showWarningTransition ease-in;
+  transform: translateY(1rem);
+}
+
+@keyframes showWarningTransition {
+  0% {
+    transform: translateY(0);
+  }
+
+  100% {
+    transform: translateY(1rem);
+  }
+}
+
+.showBorderWarning {
+  animation: stroke-transition 1s infinite ease;
+}
+
+@keyframes stroke-transition {
+  0% {
+    border: 2px solid var(--warningColor);
+  }
+
+  100% {
+    border: 2px solid var(--warningColor);
+  }
+}
+
+.timerCssPosition {
+  transform: scale(-1, 1) rotate(270deg);
+}
+
+.timerTransition {
+  animation: 0.5s timer;
+}
+
+@keyframes timer {
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+    transition: ease;
+  }
+}
+
+.timerCssPosition {
+  transform: scale(-1, 1) rotate(270deg);
+}
+
+.timerTransition {
+  animation: 0.5s timer;
+}
+
+@keyframes timer {
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+    transition: ease;
+  }
+}
+
+.transition {
+  transition: all 0.3s ease;
+}
+
+.applyTransition {
+  transition: all 0.3s ease;
+}
+
+.easeTransition {
+  /* transition: 0.3s ease; */
+  transition: transform 0.3s ease-in-out;
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+.scaleDownTransition {
+  transition: 0.3s ease !important;
+}
+
+.topicSelectionCard {
+  transform: scale(1.1);
+  transition: all 0.3s ease;
+}
+
+.easeTransition:hover {
+  transform: scale(1.1);
+  /* transition: 0.3s ease; */
+}
+
+.scaleDownTransition:hover {
+  transform: scale(0.9) !important;
+  transition: all 0.3s ease !important;
+  cursor: pointer !important;
+}
+
+.inputTextColor {
+  color: var(--darkTabBorderColor) !important;
+  caret-color: var(--darkTabBorderColor) !important;
+}
+
+.cardContainerPosition {
+  top: 8rem;
+}
+
+.cardMarginBottom {
+  /* margin-bottom: 2rem; */
+  margin-top: 1rem;
+}
+
+.optionColor {
+  background: linear-gradient(0deg, var(--black-color) -18.5%, var(--progressBarGreen) 225.92%);
+  filter: drop-shadow(0px -4px 10px var(--navBackground-outerShadow));
+}
+
+.optionColorLight {
+  background-color: var(--option-selection-background-light);
+  /* filter: drop-shadow(0px -4px 10px var(--navBackground-outerShadow)); */
+}
+
+.disableAllFields {
+  pointer-events: none;
+  cursor: no-drop;
+}
+
+.optionsBoxShadow {
+  box-shadow: 0px -4px 10px 0px var(--navBackground-outerShadow);
+}
+
+.optionSelected {
+  width: 20px;
+  height: 20px;
+  border-radius: 100%;
+  background-color: var(--base-color);
+  opacity: 1;
+  transition: 0.3s ease;
+}
+
+.optionSelectedLight {
+  width: 20px;
+  height: 20px;
+  border-radius: 100%;
+  background-color: var(--option-selected-light);
+  opacity: 1;
+  transition: 0.3s ease;
+}
+
+.optionDescriptionBoxShadow {
+  box-shadow: 0px -1px 12px 8px var(--option-boxShadow) inset;
+  transition: all 0.3s ease;
+}
+
+.optionDescriptionBoxShadowLight {
+  box-shadow: 0px -1px 12px 8px var(--option-boxShadow) inset;
+  transition: all 0.3s ease;
+}
+
+.chatContainer {
+  background-color: var(--black-color);
+  box-shadow: 0px 4px 10px 0px var(--optionContainer-color);
+}
+
+.chatContainerLight {
+  background-color: var(--white-color) / 30;
+  box-shadow: 8px 20px 50px 0px var(--optionContainer-light);
+  box-shadow: -8px -6px 80px 0px var(--micIssueNotification-boxShadow) inset;
+  transition: all 0.3s ease;
+}
+
+.startButtonBoxShadow {
+  box-shadow: 0px 6px 21px 0px var(--startBoxShadow);
+}
+
+.progressBarBackground {
+  background: linear-gradient(0deg, var(--black-color) -18.5%, var(--progressBarGreen) 225.92%);
+}
+
+#inputText {
+  height: auto;
+}
+
+.assessmentTextArea {
+  background-color: var(--black-50);
+  border: 1px solid var(--assessmentTextArea);
+  border-radius: 1.25rem;
+  filter: drop-shadow(0px -4px 10px var(--navBackground-outerShadow));
+}
+
+.assessmentTextAreaLight {
+  background-color: rgba(255, 255, 255, 0.3);
+  border: 2px solid rgba(255, 255, 255);
+  border-radius: 1.25rem;
+  filter: drop-shadow(0px -4px 10px var(--navBackground-outerShadow));
+}
+
+.assessmentSuccessBoxShadow {
+  box-shadow: 0px -4px 10px 0px var(--assessment-message-boxShadow);
+}
+
+.assessmenInnerBoxShadow {
+  box-shadow: 0px -1px 12px 8px var(--option-boxShadow) inset;
+  transition: all 0.3s ease;
+}
+
+.assessmentChartPadding {
+  padding: 1.5rem 3rem;
+}
+
+.inputFieldBoxShadow {
+  box-shadow: 0px 4px 10px 0px rgba(65, 160, 7, 0.1);
+}
+
+.assessmentReportSectionDivider {
+  margin-bottom: 8vh !important;
+}
+
+.assessmentModalDropShadow {
+  box-shadow: 0px -4px 10px var(--assessment-message-boxShadow);
+}
+
+strong {
+  font-weight: bold;
+}
+
+.passwordFieldWarning {
+  padding-left: 4% !important;
+}
+
+.toolTipId {
+  transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+}
+
+.helpModalBackground {
+  background: linear-gradient(357deg, #000 -92.6%, #142205 3.44%, #406e0f 215.99%, #274309 215.99%);
+}
+
+.helpDashboard {
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--white-color);
+  text-align: center;
+  background-color: transparent;
+  border-radius: 1.25rem;
+  transition: all 0.3s ease;
+}
+
+.helpDashboard:hover {
+  color: var(--base-color);
+  background-color: var(--white-10);
+}
+
+.helpDashboardSelected {
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--base-color);
+  text-align: center;
+  background-color: var(--white-10);
+  border-radius: 1.25rem;
+  transition: all 0.3s ease;
+}
+
+.assessmentSpacing {
+  margin-bottom: 2.5rem !important;
+}
+
+p {
+  padding-top: 10px;
+}
+
+/* Base styles for all tables */
+table {
+  color: var(--white-color);
+  border-radius: 50px;
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  /* Adds space before and after the table */
+}
+
+/* Header styles */
+th {
+  padding: 1rem 2rem;
+  text-align: left;
+  font-weight: 700;
+  font-size: 20px;
+}
+
+th:first-child {
+  border-top-left-radius: 10px;
+}
+
+th:last-child {
+  border-top-right-radius: 10px;
+}
+
+th:nth-child(odd) {
+  background-color: #41a007;
+}
+
+th:nth-child(even) {
+  background-color: #50a71c;
+}
+
+/* Table row styles */
+/* tr:nth-child(even) td {
+  background-color: #272627;
+}
+
+tr:nth-child(odd) td {
+  background-color: #3B3F38;
+} */
+
+/* Cell styles */
+td {
+  padding: 1rem 2rem;
+  text-align: left;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+td:first-child {
+  font-weight: 600;
+}
+
+tr:last-child td:first-child {
+  border-bottom-left-radius: 10px;
+}
+
+tr:last-child td:last-child {
+  border-bottom-right-radius: 10px;
+}
+
+/* Horizontal divider between rows */
+/* tr:not(:last-child) {
+  border-bottom: 0.5px solid #FFFFFF33;
+} */
+
+.historyToolTipPositioning {
+  top: 29.5%;
+  left: -23%;
+}
+
+.assessmentSubjectSelection {
+  top: 68%;
+}
+
+.navBoxShadow {
+  box-shadow: -8px -6px 80px 0px rgba(255, 255, 255, 0.18), 8px 40px 96px rgba(18, 61, 101, 0.24);
+}
+
+.feedbackBoxShadow {
+  /* box-shadow: -8px -6px 80px 0px rgba(255, 255, 255, 0.18), 8px 40px 96px 0px rgba(18, 61, 101, 0.14); */
+  border-radius: 1.25rem;
+  border: 1px solid #fff;
+  background: linear-gradient(211deg, #ebf2f9 19.14%, #c6d7eb 154.68%);
+  box-shadow: -8px -6px 80px 0px rgba(255, 255, 255, 0.18) inset, 8px 40px 96px 0px rgba(18, 61, 101, 0.14);
+}
+
+.feedbackModalBoxShadow {
+  background: radial-gradient(94.76% 94.55% at 50% 50%, #e6f0f9 32.11%, rgba(235, 243, 250, 0) 100%);
+}
+
+.smoothTransition {
+  transition: all 0.3s ease;
+}
+
+.uploadBoxShadow {
+  box-shadow: 2px 10px 24px 0px rgba(18, 61, 101, 0.1);
+}
+
+.scrollUpBoxShadow {
+  box-shadow: -2px 2px 9px 0px rgba(18, 61, 101, 0.1);
+}
+
+.supportBoxShadow {
+  box-shadow: 0px -5.3px 13.25px 0px rgba(85, 85, 85, 0.15);
+}
+
+.assessmentWarningModal {
+  background: linear-gradient(211deg, #ebf2f9 19.14%, #c6d7eb 154.68%);
+  box-shadow: -8px -6px 80px 0px rgba(255, 255, 255, 0.18), 8px 40px 96px 0px rgba(18, 61, 101, 0.14);
+}
+
+.assessmentWarningModalBackground {
+  background: radial-gradient(94.76% 94.55% at 50% 50%, #e6f0f9 32.11%, rgba(235, 243, 250, 0) 100%);
+}
+
+.uploadBackgroundContainer {
+  background: linear-gradient(0deg, #000 -18.5%, #406e0f 225.92%);
+}
+
+.chatFeedbackActionButton {
+  box-shadow: 0px 4px 10px 0px var(--feedback-action-button-boxShadow);
+}
+
+.inputBarBoxShadow {
+  box-shadow: 0px -4px 10px 0px var(--assessment-message-boxShadow);
+}
+
+.inputBarBoxShadowLight {
+  box-shadow: 2px 10px 24px 0px rgba(18, 61, 101, 0.1);
+}
+
+.inputContainerBoxShadowLight {
+  box-shadow: 0px 8px 25px 0px rgba(0, 0, 0, 0.08);
+}
+
+.inputBarAddDocument {
+  background: linear-gradient(4deg, #000 -14.49%, #406e0f 341.85%);
+}
+
+.fadeInAnimation {
+  transition: all 0.5s ease;
+  animation: 0.5s animataFadeInAnimation ease;
+}
+
+@keyframes animataFadeInAnimation {
+  0% {
+    transform: translateY(1.5rem);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.inputSelection {
+  border-radius: 1.25rem;
+  background: linear-gradient(0deg, #000 -18.5%, #527330 225.92%);
+  box-shadow: 0px -4px 10px 0px rgba(85, 85, 85, 0.15);
+}
+
+.noWrap {
+  text-wrap: nowrap;
+}
+
+.rotate45Deg {
+  transform: rotate(45deg);
+  transition: all 0.3s ease;
+}
+
+.transition-height {
+  transition: height 0.3s ease-in-out;
+}
+
+math-field::part(text) {
+  font-style: normal; /* Override italics */
+  white-space: pre-wrap; /* Preserve spaces */
+  font-family: var(--primary-font);
+}
+
+.ML__latex,
+.ML__mathit {
+  font-family: var(--primary-font) !important;
+  font-style: normal !important;
+  white-space: pre-wrap !important;
+}
+.katex {
+  font-family: inherit !important;
+  font-size: inherit !important;
+}
+.katex-display {
+  margin: 0rem 0rem !important;
+}
+math-field::part(menu-toggle) {
+  display: none;
+}
+math-field::part(virtual-keyboard-toggle) {
+  display: none;
+}
+math-field::part(pf-placeholder) {
+  font-family: var(--primary-font) !important;
+  font-style: normal !important;
+  white-space: pre-wrap !important; /* Ensure whitespace is preserved */
+}
+math-field::part(virtual-keyboard) {
+  background: linear-gradient(to right, #ff7e5f, #feb47b); /* Example gradient */
+}
+
+/* Alternatively, apply styles to the math-field component itself */
+math-field {
+  --ml-virtual-keyboard-background: linear-gradient(to right, #ff7e5f, #feb47b);
+}
+
+/* #inputmodeId::placeholder {
+  color: #393f65;
+  box-shadow: 2px 10px 24px 0px rgba(18, 61, 101, 0.10);
+} */
+
+.katex {
+  font-family: var(--primary-font) !important;
+  line-height: inherit !important;
+}
+
+.katex-display > .katex {
+  display: flex !important;
+  text-align: left !important;
+  white-space: pre-wrap !important;
+}
+
+.wrs_italic,
+.wrs_notItalic {
+  /* font-size: 1.5rem !important;
+  font-style: normal !important;
+  font-weight: 300 !important; */
+  color: var(--keyboard-text-color) !important;
+}
+
+.wrs_container {
+  margin: 1rem !important;
+  transform: scale(1.5);
+  transform-origin: left
+}
+
+/* .wrs_mathChar {
+  font-size: 1.5rem !important;
+} */
+
+.wrs_formulaDisplay {
+  background-color: transparent !important;
+}
+.wrs_toolbar .wrs_button_integral {
+  display: none !important;
+}
+.wrs_toolbar .wrs_button_sum {
+  display: none !important;
+}
+.wrs_toolbar .wrs_button_logarithm {
+  display: none !important;
+}
+.wrs_editor .wrs_toolbar .wrs_linksContainer {
+  display: none !important;
+}
+.wrs_editor .wrs_toolbar .wrs_header > button.wrs_selected {
+  border: none !important;
+  background: var(--toolbar-bg) !important;
+  border: 2px solid var(--keyboard-button-selected-border) !important;
+  border-top-color: var(--keyboard-button-selected-border) !important;
+  border-bottom-color: transparent !important;
+}
+
+.wrs_editor .wrs_toolbar .wrs_header > button.wrs_selected:hover {
+  background: var(--toolbar-bg) !important;
+  cursor: pointer !important;
+}
+
+polyline {
+  stroke: var(--keyboard-text-color) !important;
+}
+
+ellipse {
+  stroke: var(--keyboard-text-color) !important;
+}
+
+.wrs_formulaDisplay {
+  border-radius: 0.85rem !important;
+}
+
+.wrs_editor .wrs_formulaDisplay .wrs_container {
+  margin: 1rem !important;
+}
+
+.placeholder-text {
+  position: relative;
+  text-align: left;
+}
+
+.placeholder-text::before {
+  content: 'Type here...';
+  color: #888;
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(0, -50%);
+  font-size: 1.25rem;
+  text-align: left;
+}
+
+.placeholder-text:not(:empty)::before {
+  content: '';
+}
+
+.placeholder-evaluate {
+  position: relative;
+  text-align: left;
+}
+
+.placeholder-evaluate::before {
+  content: 'Type here...';
+  color: #888;
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(0, -50%);
+  font-size: 1.25rem;
+  text-align: left;
+  padding-left: 2.5rem;
+}
+
+.placeholder-evaluate:not(:empty)::before {
+  content: '';
+}
+
+.placeholder-speech {
+  position: relative;
+  text-align: left;
+}
+
+.placeholder-speech::before {
+  content: 'Speak here...';
+  color: #888;
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(0, -50%);
+  font-size: 1.25rem;
+  text-align: left;
+}
+
+.placeholder-speech:not(:empty)::before {
+  content: '';
+}
+
+.wrs_editor .wrs_toolbar .wrs_header > button {
+  background: #00000080 !important;
+  cursor: pointer !important;
+}
+
+.wrs_header,
+.wrs_editor .wrs_flexEditor .wrs_withHand .wrs_animated {
+  outline: none !important;
+}
+
+.wrs_panelContainer {
+  background: #fff !important;
+}
+
+.wrs_editor .wrs_line {
+  background: #41a007 !important;
+}
+
+.keyboardBaseBg {
+  background: var(--toolbar-bg);
+}
+
+.wrs_editor.wrs_flexEditor {
+  gap: 0.5rem !important;
+  /* justify-content: center !important;
+    align-items: center !important; */
+}
+
+.wrs_editor.wrs_flexEditor .wrs_formulaDisplay {
+  width: calc(100% - 0.5rem) !important;
+}
+
+.wrs_editor.wrs_animated.wrs_withHand:not(.wrs_handDisabled):not(.wrs_toolbarHidden) .wrs_handWrapper > input {
+  height: calc(61% - 0.5rem) !important;
+}
+
+.wrs_toolbar {
+  transform: scale(1.4) !important;
+  transform-origin: top left !important;
+}
+
+.wrs_panelContainer {
+  width: calc(68% + 30px) !important;
+  margin-bottom: 2.25rem !important;
+}
+.wrs_formulaDisplayWrapper { 
+  height: 5rem !important;
+} 
+
+#icon-sprite {
+  filter: hue-rotate(0deg); /* Initial state */
+}
+
+#icon-sprite:hover {
+  filter: hue-rotate(180deg); /* Example: change color to red on hover */
+}
+
+/* .wrs_editor .wrs_formulaDisplayWrapper.wrs_focused .wrs_caret.wrs_dark {
+  border-left-color: #FFFFFF !important;
+}
+
+.wrs_editor .wrs_formulaDisplayWrapper.wrs_focused .wrs_caret {
+  border: 5px solid #FFFFFF !important;
+} */
+
+.wrs_caret .wrs_dark {
+  border-left-width: 2px !important;
+  border-left-color: #FFFFFF !important;
+  border: 1px solid #FFFFFF !important;
+}
+
+math {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.inputContainer {
+  width: 100%;
+  max-height: 14rem;
+  font-size: 1.5rem;
+  outline: none;
+  overflow-y: scroll;
+}
+
+.inputContainer::-webkit-scrollbar-track {
+  background-color: transparent;
+  border-bottom-right-radius: 10px;
+}
+
+.inputContainer::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 5px;
+}
+
+.inputContainer:hover::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+
+.inputContainer:hover::-webkit-scrollbar {
+  width: 8px;
+}
+
+.inputContainer::-webkit-scrollbar {
+  width: 8px;
+  display: block;
+}
+
+.enableDrawEquation {
+  transform: translateX(0) !important;
+}
+
+.hideButton {
+  display: none !important;
+}
+
+.hideOpacity {
+  opacity: 0 !important;
+}
+
+.removeScale {
+  width: 37px !important;
+  transform: scale(1) !important;
+}
+
+#editorContainer {
+  outline: none !important;
+}
+
+#handContainer {
+  outline: none !important;
+}
+
+.wrs_editor.wrs_withHand:not(.wrs_handDisabled):not(.wrs_toolbarHidden) .wrs_formulaDisplayWrapper {
+  margin-right: -9px !important;
+  min-height: 10rem !important;
+}
+
+.keyboardTransition {
+  animation: 1s keyboardAnimation ease;
+  bottom: 0;
+}
+
+@keyframes keyboardAnimation {
+  0% {
+    bottom: -100%;
+  }
+  100% {
+    bottom: 0;
+  }
+}
+
+.lightModePanelBg {
+  background: linear-gradient(211deg, #EBF2F9 19.14%, #C6D7EB 154.68%);
+}
+
+/* .wrs_container {
+  transform: scale(1.5) !important;
+} */
+
+.wrs_handWrapper {
+  margin-top: 2rem !important;
+  height: calc(100% - 2rem) !important;
+}
+
+.slide-in {
+  transform: translateY(-20px);
+  opacity: 0;
+  transition: transform 0.5s ease-in-out, opacity 0.5s ease-in-out;
+}
+
+.slide-in.visible {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+#editorContainer, #handContainer {
+  transition: all 0.3s ease-out;
+}
+
+.boardPanelColor {
+  background: linear-gradient(6deg, #000 -44.1%, #141C0C -2.76%, #3C5524 79.33%, #527330 123.37%);
+  box-shadow: 0px -4px 10px 0px rgba(85, 85, 85, 0.15);
+}
+
+.boardPanelSelectionColor {
+  background: linear-gradient(6deg, #000 -44.1%, #141C0C -2.76%, #3C5524 79.33%, #527330 123.37%);
+  box-shadow: 0px -4px 10px 0px rgba(85, 85, 85, 0.15);
+}
+
+.lightThemeBackground {
+  background: url('/assets/images/background.svg');
+}
+
+.darkThemeBackground {
+  background: url('/assets/images/light_mode_bg.svg')
+}
+
+mjx-container mjx-line {
+  margin: 0.1em -0.01em; /* Adjust vertical spacing */
+}
+.katex .mfrac .vlist {
+  margin-top: 0.2em; /* Adjust as needed */
+  margin-bottom: 0.2em; /* Adjust as needed */
+}
+
+.katex .mfrac .vlist-t {
+  padding-bottom: 0.1em; /* Adjust spacing for numerator */
+}
+
+.katex .mfrac .vlist-s {
+  padding-top: 0.1em; /* Adjust spacing for denominator */
+}
+#editorContainer math-field::part(virtual-keyboard-toggle),
+#editorContainer math-field::part(menu-toggle){
+  display: block !important;
+}
+
+:where(.ui-menu-container > li:nth-child(4)),
+:where(.ui-menu-container > li:last-child)
+{
+  display: none !important;
+}
+
+.ML__keyboard{
+  top:-200px !important;
+  margin-bottom: 150px!important; 
+  background: var(--toolbar-bg)!important;
+}
+.MLK__backdrop{
+  background: var(--toolbar-bg)!important;
+}
+
+
